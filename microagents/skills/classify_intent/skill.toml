@@ -1,0 +1,48 @@
+[meta]
+name = "classify_intent"
+version = "0.1"
+description = "Classify a user message into a booking intent kind"
+tags = ["booking", "router"]
+
+[runtime]
+model_hint = "small"
+tools = []
+default_isolation = "process"
+
+[budget]
+tokens = 2_000
+wall_seconds = 15
+joules = 0
+
+[[requires.inputs]]
+name = "text"
+type = "string"
+description = "Raw user message text to classify"
+example = "find me an appointment at Joe's Pizza tomorrow at 7pm"
+
+[output]
+schema = "object"
+required = ["kind"]
+
+[output.properties.kind]
+type = "string"
+description = "One of: book, query, cancel, confirm, smalltalk"
+format = "text"
+
+[output.properties.business_query]
+type = "string"
+description = "Free-text name/description of the business when present"
+format = "text"
+
+[output.properties.service]
+type = "string"
+description = "Requested service or item (e.g. 'haircut', 'reservation', 'pizza')"
+format = "text"
+
+[output.properties.date_hint]
+type = "string"
+description = "Natural-language date/time hint extracted from the message"
+format = "text"
+
+[graph]
+can_spawn = []

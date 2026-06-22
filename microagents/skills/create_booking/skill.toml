@@ -1,0 +1,61 @@
+[meta]
+name = "create_booking"
+version = "0.1"
+description = "Create a booking at a business for a specific slot. Idempotent."
+tags = ["booking", "write"]
+
+[runtime]
+model_hint = "small"
+tools = []
+default_isolation = "process"
+
+[budget]
+tokens = 3_000
+wall_seconds = 25
+joules = 0
+
+[[requires.inputs]]
+name = "business_id"
+type = "string"
+description = "Business identifier from resolve_business"
+example = "stub_3f2b1a"
+
+[[requires.inputs]]
+name = "slot"
+type = "string"
+description = "ISO 8601 datetime of the chosen slot"
+example = "2026-06-22T19:00:00"
+
+[[requires.inputs]]
+name = "user_contact"
+type = "string"
+description = "Phone or email to attach to the booking"
+example = "+15551234567"
+
+[[requires.inputs]]
+name = "idempotency_key"
+type = "string"
+description = "Caller-supplied key — same key returns the same booking_id"
+example = "sess1:stub_3f2b1a:2026-06-22T19:00:00"
+
+[output]
+schema = "object"
+required = ["booking_id", "status"]
+
+[output.properties.booking_id]
+type = "string"
+description = "Stable identifier for the booking"
+format = "text"
+
+[output.properties.status]
+type = "string"
+description = "One of: confirmed | pending | rejected"
+format = "text"
+
+[output.properties.note]
+type = "string"
+description = "Adapter-supplied note (stubbed in slice 2)"
+format = "text"
+
+[graph]
+can_spawn = []

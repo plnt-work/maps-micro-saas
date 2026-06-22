@@ -1,0 +1,51 @@
+[meta]
+name = "check_availability"
+version = "0.2"
+description = "Return realistic open slots, date-anchored on today"
+tags = ["booking", "availability"]
+
+[runtime]
+model_hint = "small"
+tools = []
+default_isolation = "process"
+
+[budget]
+tokens = 3_000
+wall_seconds = 20
+joules = 0
+
+[[requires.inputs]]
+name = "business_name"
+type = "string"
+description = "Display name of the business"
+example = "Joey's Pizza"
+
+[[requires.inputs]]
+name = "date_hint"
+type = "string"
+description = "Natural-language date/time the user asked about"
+example = "tomorrow at 7pm"
+
+[[requires.inputs]]
+name = "today"
+type = "string"
+description = "Reference date in ISO format — used to resolve 'tomorrow' etc."
+example = "2026-06-21"
+
+[output]
+schema = "object"
+required = ["slots"]
+
+[output.properties.slots]
+type = "array"
+description = "ISO 8601 datetime strings (local, no tz)"
+format = "json"
+items = "string"
+
+[output.properties.note]
+type = "string"
+description = "Short note for debugging (not shown to user)"
+format = "text"
+
+[graph]
+can_spawn = []
