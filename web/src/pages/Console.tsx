@@ -1,167 +1,83 @@
 /**
- * Console — operator dashboard.
+ * Console — operator dashboard, FE-Console-v2 shell.
  *
- * Three-pane layout:
+ * The shape comes from features/console/ConsoleShell.tsx (top bar, nav
+ * rail, tabbed main, drawer). This page is just the data plumbing:
+ *   - tenants list (react-query)
+ *   - selected-tenant state (URL-backed so reload + share work)
+ *   - provision + delete mutations
  *
- *   ┌───────────┬──────────────────────────────┬───────────┐
- *   │ Tenants   │ Metrics + recent sessions    │ Debug WS  │
- *   └───────────┴──────────────────────────────┴───────────┘
- *
- * Polls the selected tenant's metrics every 3s; refreshes on tenant change
- * and after the debug chat opens a new session.
- *
- * Open by default — no operator sign-in. When PLNT_CLOUD_REQUIRE_AUTH=1
- * flips on, this surface gets re-gated then.
+ * No more setInterval; no more 3-pane split. The DebugChat WebSocket
+ * lives inside Conversations now (per-transcript drawer).
  */
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 
-import TenantRail from "../components/console/TenantRail";
-import MetricGrid from "../components/console/MetricGrid";
-import DebugChat from "../components/console/DebugChat";
+import ConsoleShell from "../features/console/ConsoleShell";
 import ProvisionDialog from "../components/console/ProvisionDialog";
-import {
-  deleteTenant, getMetrics, getPlacesStatus, listTenants,
-  type PlacesStatus, type TenantMetrics, type TenantSummary,
-} from "../api/admin";
-
-const METRICS_POLL_MS = 3000;
+import { deleteTenant, listTenants, type TenantSummary } from "../api/admin";
 
 export default function Console() {
-  const [tenants, setTenants] = useState<TenantSummary[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
-  const [metrics, setMetrics] = useState<TenantMetrics | null>(null);
-  const [places, setPlaces] = useState<PlacesStatus | null>(null);
+  const qc = useQueryClient();
+
+  const tenantsQ = useQuery({
+    queryKey: ["tenants"],
+    queryFn: listTenants,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+
+  const [params, setParams] = useSearchParams();
+  // The user's intended selection. URL is the source of truth; this state
+  // only holds an override when no URL param has been set yet.
+  const [override, setOverride] = useState<string | null>(null);
+
+  // Effective selection: URL → override → first tenant. All derived in
+  // render so we never call setState inside an effect to "clamp" a stale
+  // selection.
+  const selected: string | null = useMemo(() => {
+    const tenants: TenantSummary[] = tenantsQ.data ?? [];
+    const raw = override ?? params.get("tenant");
+    if (raw && tenants.some((t) => t.tenant_id === raw)) return raw;
+    return tenants[0]?.tenant_id ?? null;
+  }, [override, params, tenantsQ.data]);
+
+  const onSelectTenant = (id: string) => {
+    setOverride(id);
+    params.set("tenant", id);
+    setParams(params, { replace: true });
+  };
+
   const [provisioning, setProvisioning] = useState(false);
-  const [debugVer, setDebugVer] = useState(0);
-  const [err, setErr] = useState<string | null>(null);
 
-  useEffect(() => { void reload(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
-  useEffect(() => {
-    getPlacesStatus().then(setPlaces).catch(() => setPlaces(null));
-  }, []);
-
-  useEffect(() => {
-    if (!selected) { setMetrics(null); return; }
-    let cancelled = false;
-    const refresh = async () => {
-      try {
-        const m = await getMetrics(selected);
-        if (!cancelled) setMetrics(m);
-      } catch (e) {
-        if (!cancelled) setErr(String((e as Error).message));
-      }
-    };
-    void refresh();
-    const t = setInterval(refresh, METRICS_POLL_MS);
-    return () => { cancelled = true; clearInterval(t); };
-  }, [selected, debugVer]);
-
-  const reload = async () => {
-    try {
-      const t = await listTenants();
-      setTenants(t);
-      if (!selected && t.length) setSelected(t[0]!.tenant_id);
-      if (selected && !t.some((x) => x.tenant_id === selected)) {
-        setSelected(t.length ? t[0]!.tenant_id : null);
-      }
-    } catch (e) {
-      setErr(String((e as Error).message));
-    }
-  };
-
-  const onDelete = async (tid: string) => {
-    if (!confirm(`Delete tenant '${tid}' permanently? All conversations, memory, and bookings will be wiped.`)) return;
-    try {
-      await deleteTenant(tid);
-      await reload();
-    } catch (e) {
-      setErr(String((e as Error).message));
-    }
-  };
-
-  const selectedTenant = tenants.find((t) => t.tenant_id === selected) || null;
+  const deleteMut = useMutation({
+    mutationFn: deleteTenant,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tenants"] });
+    },
+  });
 
   return (
-    <div className="theme-console">
-      <header className="console-topbar">
-        <div className="left">
-          <Link to="/console" className="brand">Atlas</Link>
-          <span className="crumb">console / <b>{selected || "—"}</b></span>
-        </div>
-        <div className="right">
-          <Link to="/atlas" style={{ color: "var(--coal-mute)", borderBottom: "1px solid var(--coal-line)", paddingBottom: 2 }}>
-            map surface →
-          </Link>
-        </div>
-      </header>
-
-      <div className="console-body">
-        <TenantRail
-          tenants={tenants}
-          selected={selected}
-          onSelect={setSelected}
-          onProvision={() => setProvisioning(true)}
-          onDelete={onDelete}
-        />
-
-        <section className="console-detail thin-scroll">
-          {err && (
-            <div style={{
-              background: "rgba(181,87,46,0.10)",
-              border: "1px solid rgba(181,87,46,0.25)",
-              color: "var(--rust)",
-              padding: "10px 14px", borderRadius: 8, marginBottom: 16,
-              fontSize: 13,
-            }}>
-              {err}
-            </div>
-          )}
-
-          {selectedTenant ? (
-            <>
-              <h2 className="h1">{selectedTenant.tenant_id}</h2>
-              <div className="home">{selectedTenant.home}</div>
-              <MetricGrid metrics={metrics} places={places} />
-            </>
-          ) : (
-            <p style={{ color: "var(--coal-mute)", fontSize: 14 }}>
-              Pick a tenant on the left, or provision a new one.
-            </p>
-          )}
-        </section>
-
-        {selected ? (
-          <DebugChat
-            tenantId={selected}
-            resetVersion={debugVer}
-            onReset={() => setDebugVer((v) => v + 1)}
-          />
-        ) : (
-          <aside className="debug-rail">
-            <div className="head">
-              <div>
-                <div className="label">Live debug</div>
-                <h4>—</h4>
-              </div>
-            </div>
-            <div className="empty-rail">
-              Select a tenant to open a debug WebSocket.
-            </div>
-          </aside>
-        )}
-      </div>
+    <>
+      <ConsoleShell
+        tenants={tenantsQ.data ?? []}
+        selected={selected}
+        onSelectTenant={onSelectTenant}
+        onProvision={() => setProvisioning(true)}
+        onDeleteTenant={(id) => deleteMut.mutate(id)}
+      />
 
       {provisioning && (
         <ProvisionDialog
           onCancel={() => setProvisioning(false)}
           onCreated={(t) => {
             setProvisioning(false);
-            void reload();
-            setSelected(t.tenant_id);
+            qc.invalidateQueries({ queryKey: ["tenants"] });
+            onSelectTenant(t.tenant_id);
           }}
         />
       )}
-    </div>
+    </>
   );
 }

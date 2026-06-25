@@ -48,7 +48,33 @@ class LoadedSkill:
 
     @property
     def tools(self) -> list[str]:
-        return list(self.manifest.get("runtime", {}).get("tools", ["search", "execute"]))
+        """Named tools the skill may call. Empty = single-shot prompt skill."""
+        return list(self.manifest.get("runtime", {}).get("tools", []))
+
+    @property
+    def max_steps(self) -> int:
+        """Maximum LLM rounds for this skill. Per skill type:
+            classifier / synthesizer = 1
+            retriever (resolve_business, check_availability) = 2-3
+            transactor (create_booking, cancel_booking) = 3-4
+
+        Read from `[runtime] max_steps`. Defaults to 1 (single-shot) so a
+        skill that forgets to declare it can't accidentally burn budget.
+        """
+        return int(self.manifest.get("runtime", {}).get("max_steps", 1))
+
+    @property
+    def response_schema(self) -> dict[str, Any] | None:
+        """JSON Schema for the final response, when declared.
+
+        When set AND `tools` is empty, the agent loop forwards this to
+        Gemini as response_format.json_schema for native structured output —
+        no more relying on the "FINAL: <json>" prompt convention.
+        """
+        rs = self.manifest.get("response_schema")
+        if isinstance(rs, dict) and rs:
+            return rs
+        return None
 
 
 @lru_cache(maxsize=64)

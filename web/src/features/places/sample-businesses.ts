@@ -1,0 +1,173 @@
+/**
+ * Seed data — 13 businesses around Colaba, Mumbai (18.9217, 72.8332),
+ * spread across all 5 verticals. Replaced by MA-P3's /v1/places/area
+ * endpoint when seeding ships. Names are illustrative; coords are tightly
+ * clustered so the demo map opens at a reasonable zoom.
+ */
+import type { Business } from "./types";
+
+export const SAMPLE_BUSINESSES: Business[] = [
+  // ─── Restaurants ────────────────────────────────────────────────────
+  {
+    place_id: "biz-leopold",
+    display_name: "Leopold Cafe",
+    vertical: "restaurant",
+    lat: 18.9221,
+    lng: 72.8313,
+    address: "SB Singh Rd, Colaba Causeway",
+    rating: 4.2,
+    user_ratings: 18420,
+    hours: "8am – 12am",
+    phone: "+91 22 2282 8185",
+    web: "https://leopoldcafe.com",
+  },
+  {
+    place_id: "biz-bademiya",
+    display_name: "Bademiya",
+    vertical: "restaurant",
+    lat: 18.9246,
+    lng: 72.8331,
+    address: "Tulloch Rd, behind Taj Hotel",
+    rating: 4.3,
+    user_ratings: 9820,
+    hours: "7pm – 2am",
+    phone: "+91 22 2284 8038",
+  },
+  {
+    place_id: "biz-cafemondegar",
+    display_name: "Cafe Mondegar",
+    vertical: "restaurant",
+    lat: 18.9226,
+    lng: 72.8319,
+    address: "Metro House, Colaba Causeway",
+    rating: 4.1,
+    user_ratings: 14110,
+    hours: "8am – 12am",
+    phone: "+91 22 2202 0591",
+  },
+  {
+    place_id: "biz-thaihouse",
+    display_name: "Thai House",
+    vertical: "restaurant",
+    lat: 18.9197,
+    lng: 72.8351,
+    address: "Strand Rd, Colaba",
+    rating: 4.4,
+    user_ratings: 1240,
+    hours: "12pm – 11pm",
+  },
+
+  // ─── Doctors ────────────────────────────────────────────────────────
+  {
+    place_id: "biz-saifeehealth",
+    display_name: "Saifee Health Clinic",
+    vertical: "doctor",
+    lat: 18.9237,
+    lng: 72.8298,
+    address: "1st floor, Maker Chambers, Colaba",
+    rating: 4.6,
+    user_ratings: 412,
+    hours: "Mon–Sat 9am – 7pm",
+    phone: "+91 22 2202 7088",
+  },
+  {
+    place_id: "biz-bombayhospital-annex",
+    display_name: "Bombay Hospital Annex",
+    vertical: "doctor",
+    lat: 18.9182,
+    lng: 72.8294,
+    address: "Cuffe Parade, Colaba",
+    rating: 4.4,
+    user_ratings: 1502,
+    hours: "24 hours",
+    phone: "+91 22 2206 7676",
+  },
+
+  // ─── Salons ─────────────────────────────────────────────────────────
+  {
+    place_id: "biz-truefitt",
+    display_name: "Truefitt & Hill",
+    vertical: "salon",
+    lat: 18.9211,
+    lng: 72.8321,
+    address: "The Taj Mahal Palace, lobby level",
+    rating: 4.7,
+    user_ratings: 318,
+    hours: "10am – 8pm",
+    phone: "+91 22 6665 3366",
+  },
+  {
+    place_id: "biz-juiceandscissors",
+    display_name: "Juice & Scissors",
+    vertical: "salon",
+    lat: 18.9258,
+    lng: 72.8312,
+    address: "Wodehouse Rd, Colaba",
+    rating: 4.3,
+    user_ratings: 612,
+    hours: "10am – 9pm",
+  },
+
+  // ─── Pharmacies ─────────────────────────────────────────────────────
+  {
+    place_id: "biz-wellness-pharmacy",
+    display_name: "Wellness Pharmacy",
+    vertical: "pharmacy",
+    lat: 18.9203,
+    lng: 72.8337,
+    address: "Apollo Bunder, Colaba",
+    rating: 4.5,
+    user_ratings: 224,
+    hours: "8am – 11pm",
+    phone: "+91 22 2284 4001",
+  },
+  {
+    place_id: "biz-noble-chemist",
+    display_name: "Noble Chemist",
+    vertical: "pharmacy",
+    lat: 18.9189,
+    lng: 72.8319,
+    address: "SP Mukherjee Chowk, Colaba",
+    rating: 4.2,
+    user_ratings: 87,
+    hours: "9am – 10:30pm",
+  },
+  {
+    place_id: "biz-medplus-cuffe",
+    display_name: "MedPlus — Cuffe Parade",
+    vertical: "pharmacy",
+    lat: 18.9162,
+    lng: 72.8273,
+    address: "Cuffe Parade Rd",
+    rating: 4.1,
+    user_ratings: 312,
+    hours: "8am – 11pm",
+  },
+
+  // ─── Gyms ───────────────────────────────────────────────────────────
+  {
+    place_id: "biz-talwalkars-colaba",
+    display_name: "Talwalkars Better Value Fitness",
+    vertical: "gym",
+    lat: 18.9168,
+    lng: 72.8308,
+    address: "Cuffe Parade, Colaba",
+    rating: 4.0,
+    user_ratings: 540,
+    hours: "5am – 11pm",
+    phone: "+91 22 6655 1234",
+  },
+  {
+    place_id: "biz-cult-colaba",
+    display_name: "Cult Fit — Colaba",
+    vertical: "gym",
+    lat: 18.9244,
+    lng: 72.8290,
+    address: "Best Marg, Colaba",
+    rating: 4.4,
+    user_ratings: 1130,
+    hours: "6am – 10pm",
+  },
+];
+
+export const COLABA_CENTER = { lat: 18.9217, lng: 72.8332 };

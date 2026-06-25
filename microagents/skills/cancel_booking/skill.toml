@@ -1,12 +1,13 @@
 [meta]
 name = "cancel_booking"
-version = "0.1"
-description = "Cancel a previously created booking. Idempotent (no-op on already-cancelled)."
+version = "0.2"
+description = "Cancel a previously created booking via bookings_cancel. Idempotent."
 tags = ["booking", "compensation"]
 
 [runtime]
 model_hint = "small"
-tools = []
+tools = ["bookings_cancel"]
+max_steps = 2
 default_isolation = "process"
 
 [budget]
@@ -23,22 +24,19 @@ example = "bk_a3f7c2d9b8e1"
 [[requires.inputs]]
 name = "reason"
 type = "string"
-description = "Why we are cancelling (e.g. 'compensation: charge failed')"
+description = "Why we are cancelling"
 example = "compensation: charge failed"
 
-[output]
-schema = "object"
+[response_schema]
+type = "object"
 required = ["booking_id", "status"]
+additionalProperties = false
 
-[output.properties.booking_id]
+[response_schema.properties.booking_id]
 type = "string"
-description = "Echoed back"
-format = "text"
 
-[output.properties.status]
+[response_schema.properties.status]
 type = "string"
-description = "One of: cancelled | already_cancelled | not_found"
-format = "text"
 
 [graph]
 can_spawn = []

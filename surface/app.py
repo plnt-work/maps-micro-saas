@@ -21,9 +21,11 @@ def create_app() -> FastAPI:
         description="Multi-tenant micro-agent platform — slice 1 surface",
     )
 
-    # CORS for the (future) React side-panel UI.
+    # CORS allow-list. Comma-separated. Add the Cloudflare tunnel hostname
+    # (e.g. https://api.dev.<your-zone>) here so the mobile app and any
+    # tunnel-routed callers can hit the surface without code edits.
     allow_origins = os.environ.get(
-        "PLNT_CLOUD_CORS_ALLOW",
+        "CORS_ORIGINS",
         "http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080",
     ).split(",")
     app.add_middleware(

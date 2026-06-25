@@ -1,12 +1,13 @@
 [meta]
 name = "classify_intent"
-version = "0.1"
-description = "Classify a user message into a booking intent kind"
+version = "0.2"
+description = "Classify a user message into a booking intent kind. Single-shot, structured."
 tags = ["booking", "router"]
 
 [runtime]
 model_hint = "small"
 tools = []
+max_steps = 1
 default_isolation = "process"
 
 [budget]
@@ -20,29 +21,23 @@ type = "string"
 description = "Raw user message text to classify"
 example = "find me an appointment at Joe's Pizza tomorrow at 7pm"
 
-[output]
-schema = "object"
-required = ["kind"]
+[response_schema]
+type = "object"
+required = ["kind", "business_query", "service", "date_hint"]
+additionalProperties = false
 
-[output.properties.kind]
+[response_schema.properties.kind]
 type = "string"
-description = "One of: book, query, cancel, confirm, smalltalk"
-format = "text"
+enum = ["book", "query", "cancel", "confirm", "smalltalk"]
 
-[output.properties.business_query]
+[response_schema.properties.business_query]
 type = "string"
-description = "Free-text name/description of the business when present"
-format = "text"
 
-[output.properties.service]
+[response_schema.properties.service]
 type = "string"
-description = "Requested service or item (e.g. 'haircut', 'reservation', 'pizza')"
-format = "text"
 
-[output.properties.date_hint]
+[response_schema.properties.date_hint]
 type = "string"
-description = "Natural-language date/time hint extracted from the message"
-format = "text"
 
 [graph]
 can_spawn = []

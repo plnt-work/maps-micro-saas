@@ -1,12 +1,13 @@
 [meta]
 name = "check_availability"
-version = "0.2"
-description = "Return realistic open slots, date-anchored on today"
+version = "0.3"
+description = "Return realistic open slots, date-anchored on today. Single-shot, structured."
 tags = ["booking", "availability"]
 
 [runtime]
 model_hint = "small"
 tools = []
+max_steps = 1
 default_isolation = "process"
 
 [budget]
@@ -32,20 +33,19 @@ type = "string"
 description = "Reference date in ISO format — used to resolve 'tomorrow' etc."
 example = "2026-06-21"
 
-[output]
-schema = "object"
-required = ["slots"]
+[response_schema]
+type = "object"
+required = ["slots", "note"]
+additionalProperties = false
 
-[output.properties.slots]
+[response_schema.properties.slots]
 type = "array"
-description = "ISO 8601 datetime strings (local, no tz)"
-format = "json"
-items = "string"
 
-[output.properties.note]
+[response_schema.properties.slots.items]
 type = "string"
-description = "Short note for debugging (not shown to user)"
-format = "text"
+
+[response_schema.properties.note]
+type = "string"
 
 [graph]
 can_spawn = []

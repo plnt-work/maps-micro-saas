@@ -1,12 +1,13 @@
 [meta]
 name = "create_booking"
-version = "0.1"
-description = "Create a booking at a business for a specific slot. Idempotent."
+version = "0.2"
+description = "Create a booking by calling bookings_upsert. Deterministic, idempotent."
 tags = ["booking", "write"]
 
 [runtime]
 model_hint = "small"
-tools = []
+tools = ["bookings_upsert"]
+max_steps = 3
 default_isolation = "process"
 
 [budget]
@@ -38,24 +39,19 @@ type = "string"
 description = "Caller-supplied key — same key returns the same booking_id"
 example = "sess1:stub_3f2b1a:2026-06-22T19:00:00"
 
-[output]
-schema = "object"
+[response_schema]
+type = "object"
 required = ["booking_id", "status"]
+additionalProperties = false
 
-[output.properties.booking_id]
+[response_schema.properties.booking_id]
 type = "string"
-description = "Stable identifier for the booking"
-format = "text"
 
-[output.properties.status]
+[response_schema.properties.status]
 type = "string"
-description = "One of: confirmed | pending | rejected"
-format = "text"
 
-[output.properties.note]
+[response_schema.properties.note]
 type = "string"
-description = "Adapter-supplied note (stubbed in slice 2)"
-format = "text"
 
 [graph]
 can_spawn = []

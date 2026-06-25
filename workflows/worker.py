@@ -66,7 +66,14 @@ async def main() -> None:
         "openai", "sqlite3",
         "plnt", "workflows.activities", "workflows.bookings_store",
         "services", "services.places", "tenancy", "tenancy.factory",
-        "memory", "memory.memori_adapter",
+        "memory", "memory.memori_adapter", "memory.preload",
+        # MA-P1: agent loop + tool registry are activity-side; the sandbox
+        # would otherwise re-validate their httpx/sqlite imports every
+        # workflow activation. Forgetting any of these = silent
+        # RestrictedWorkflowAccessError → chat returns no replies.
+        "microagents", "microagents.loader", "microagents.agent_loop",
+        "microagents.tools", "microagents.tools.places",
+        "microagents.tools.bookings", "microagents.tools.notify",
     )
     worker = Worker(
         client,

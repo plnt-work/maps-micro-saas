@@ -1,89 +1,150 @@
 /**
  * Atlas — the consumer surface.
  *
- * Layout:
+ * Layout (FE-P2):
  *
- *   ┌─────────────────┬──────────────────────────────────┐
- *   │                 │                                   │
- *   │   Chat panel    │            Map                    │
- *   │   (left rail,   │                                   │
- *   │    always       │      ┌─PlaceCard─┐                │
- *   │    visible)     │      │  (when    │                │
- *   │                 │      │   active) │                │
- *   │                 │      └───────────┘                │
- *   │                 │                                   │
- *   └─────────────────┴──────────────────────────────────┘
+ *   ┌────────────────────────────────────┬──────────────────┐
+ *   │                                    │ BusinessHeader   │
+ *   │   <Map> from @vis.gl/react-google- │                  │
+ *   │   maps fills the left column.      │ AgentStrip       │
+ *   │                                    │                  │
+ *   │   Floating MapSearch panel pinned  │ ChatPanel        │
+ *   │   top-left (search + chips).       │  (scoped to biz  │
+ *   │                                    │   + agent)       │
+ *   │   AdvancedMarker per Business,     │                  │
+ *   │   Pin colored by vertical.         │ SessionBar       │
+ *   └────────────────────────────────────┴──────────────────┘
  *
- * The chat panel is the primary interface. Candidates returned by the agent
- * render inline in the chat (not as a separate sidebar). The PlaceCard
- * floats over the map only when the user has selected one and there's a
- * structured action (slots, confirmation, failure) to act on.
+ * Right rail is fixed-width (420px); the map gets every remaining pixel.
  *
- * The agent's intermediate trace (classify_intent, resolve_business, …) is
- * not rendered as bubbles — only the synthesizer's `say` reply hits the
- * conversation. Trace bubbles drive UI side-effects (candidates, thinking
- * pill, place card) instead.
+ * One WS connection lives at this level so swapping the selected business
+ * or agent doesn't tear down replies; the envelope on each send is what
+ * tells the backend "this turn is about biz X, agent Y".
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-import MapCanvas, { type MapPin } from "../components/atlas/MapCanvas";
-import PlaceCard, { type PlaceAction } from "../components/atlas/PlaceCard";
-import ChatPanel, { type Candidate } from "../components/atlas/ChatPanel";
-import { useWsChat, type TimelineItem } from "../hooks/useWsChat";
+import MapSurface from "../features/places/MapSurface";
+import MapSearch from "../features/places/MapSearch";
+import BusinessHeader from "../features/places/BusinessHeader";
+import EmptyState from "../features/places/EmptyState";
+import AgentStrip from "../features/agents/AgentStrip";
+import ChatPanel, { type ChatAction } from "../features/chat/ChatPanel";
+import SessionBar, { type LocStatus } from "../features/chat/SessionBar";
+import { useWsChat, type TimelineItem } from "../features/chat/useWsChat";
 
-const MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY as string | undefined;
+import { SAMPLE_BUSINESSES } from "../features/places/sample-businesses";
+import type { Business, Vertical } from "../features/places/types";
+import { metaFor } from "../features/places/verticals";
+import { agentBySlug, agentsFor, type AgentSlug } from "../features/agents/registry";
+
 const DEFAULT_TENANT =
   (import.meta.env.VITE_DEFAULT_TENANT as string | undefined) || "demo";
 
 export default function Atlas() {
   const tenantId = DEFAULT_TENANT;
-  const userId = stableId("atlas_user_id", "web-user");
-  const [sessionId, setSessionId] = useState(stableId("atlas_session_id", null));
 
-  const newSession = () => {
-    const fresh = `web-${Math.random().toString(36).slice(2, 10)}`;
+  // ─── identity ──────────────────────────────────────────────────────
+  // `useState` with a lazy initializer is React's pure way to do
+  // mount-time work; we don't write to refs during render or mutate
+  // sessionStorage outside of it.
+  const [userId] = useState<string>(() => readOrCreateId("atlas_user_id"));
+  const [sessionId, setSessionId] = useState<string>(() =>
+    readOrCreateId("atlas_session_id"),
+  );
+
+  // ─── selection ─────────────────────────────────────────────────────
+  // Selection lives near the top so callbacks declared below can clear it
+  // without forward-referencing the setter.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [agentSelection, setAgentSelection] = useState<AgentSlug | null>(null);
+
+  const newSession = useCallback(() => {
+    const fresh = freshId();
     sessionStorage.setItem("atlas_session_id", fresh);
     setSessionId(fresh);
-    setActiveName(null);
-  };
+    setSelectedId(null);
+  }, []);
 
+  // ─── ws ────────────────────────────────────────────────────────────
   const { status, items, send: rawSend } = useWsChat({ tenantId, sessionId, userId });
 
-  const [activeName, setActiveName] = useState<string | null>(null);
-
-  // Best-effort: attach the user's coords to outgoing messages once granted.
-  // Lets resolve_business handle "near me" intents accurately.
+  // ─── geolocation ───────────────────────────────────────────────────
   const [userLoc, setUserLoc] = useState<{ lat: number; lng: number } | null>(null);
-  const [locStatus, setLocStatus] = useState<"idle" | "asking" | "granted" | "denied">("idle");
-  const requestLocation = () => {
-    if (!navigator.geolocation || locStatus === "asking") return;
+  const [locStatus, setLocStatus] = useState<LocStatus>("idle");
+
+  const requestLocation = useCallback(() => {
+    if (!navigator.geolocation) {
+      setLocStatus("denied");
+      return;
+    }
     setLocStatus("asking");
     navigator.geolocation.getCurrentPosition(
-      (pos) => { setUserLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude }); setLocStatus("granted"); },
+      (pos) => {
+        setUserLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setLocStatus("granted");
+      },
       () => setLocStatus("denied"),
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 5 * 60 * 1000 },
     );
-  };
-  useEffect(() => { requestLocation(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  }, []);
 
-  const send = (text: string) => {
-    const decorated = userLoc
-      ? `${text} [@${userLoc.lat.toFixed(5)},${userLoc.lng.toFixed(5)}]`
-      : text;
-    return rawSend(decorated);
-  };
-
-  const { candidates, action } = useMemo(
-    () => deriveFromTimeline(items),
-    [items],
-  );
-
-  // First candidate becomes active so the place card opens to something useful.
+  // Mount-once geolocation request. We call the browser API directly inside
+  // the effect (no setState in the sync body) so the
+  // react-hooks/set-state-in-effect rule stays satisfied — only the async
+  // permission callbacks touch React state.
   useEffect(() => {
-    if (!activeName && candidates.length > 0) setActiveName(candidates[0]!.name);
-  }, [candidates, activeName]);
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setUserLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setLocStatus("granted");
+      },
+      () => setLocStatus("denied"),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 5 * 60 * 1000 },
+    );
+  }, []);
 
-  // Thinking: between the last user turn and the next `say` / `system` reply.
+  // ─── filters ───────────────────────────────────────────────────────
+  const [query, setQuery] = useState("");
+  const [verticalFilter, setVerticalFilter] = useState<Vertical | null>(null);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return SAMPLE_BUSINESSES.filter((b) => {
+      if (verticalFilter && b.vertical !== verticalFilter) return false;
+      if (q && !b.display_name.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [query, verticalFilter]);
+
+  // Effective selection: the user's selectedId, clamped to whatever's
+  // currently in the filtered list. Derived in render (no effect) so the
+  // selection auto-clears when chip changes hide it but doesn't leak a
+  // stale ref into state.
+  const selected: Business | null = useMemo(() => {
+    if (!selectedId) return null;
+    return filtered.find((b) => b.place_id === selectedId) || null;
+  }, [filtered, selectedId]);
+
+  // Effective agent: the user's pick, clamped to the agents valid for the
+  // selected business's vertical; default-for-vertical if their pick is
+  // stale. Also derived; the underlying `agentSelection` state only holds
+  // intent.
+  const agentSlug: AgentSlug | null = useMemo(() => {
+    if (!selected) return null;
+    const valid = agentsFor(selected.vertical);
+    if (agentSelection && valid.some((a) => a.slug === agentSelection)) {
+      return agentSelection;
+    }
+    return metaFor(selected.vertical).defaultAgent;
+  }, [selected, agentSelection]);
+
+  const onSelect = useCallback((id: string) => setSelectedId(id), []);
+
+  // ─── inline action (booking flow) derived from replies ─────────────
+  const action = useMemo(() => deriveAction(items), [items]);
+
+  // Thinking: between the last user turn and the next say/system reply.
   const thinking = useMemo(() => {
     for (let i = items.length - 1; i >= 0; i--) {
       const it = items[i];
@@ -96,264 +157,127 @@ export default function Atlas() {
     return false;
   }, [items]);
 
-  // Pins from candidates, projected into the SVG viewBox / GMap bounds.
-  const pins: MapPin[] = useMemo(() => {
-    if (candidates.length === 0) return [];
-    const positions = [
-      { x: 35, y: 38 }, { x: 52, y: 50 }, { x: 28, y: 56 },
-      { x: 60, y: 36 }, { x: 42, y: 64 }, { x: 22, y: 42 },
-    ];
-    return candidates.slice(0, positions.length).map((c, i) => ({
-      x: positions[i]!.x,
-      y: positions[i]!.y,
-      label: c.name,
-      primary: c.name === activeName,
-    }));
-  }, [candidates, activeName]);
+  const onSendRaw = useCallback(
+    (text: string) => {
+      const decorated = userLoc
+        ? `${text} [@${userLoc.lat.toFixed(5)},${userLoc.lng.toFixed(5)}]`
+        : text;
+      return rawSend(decorated);
+    },
+    [rawSend, userLoc],
+  );
 
-  const active = candidates.find((c) => c.name === activeName) || null;
-
-  const pickSlot = (slot: string) => send(`yes book ${slot}`);
-  const pickCandidate = (c: Candidate) => {
-    setActiveName(c.name);
-    send(`book ${c.name}${c.neighborhood ? ` in ${c.neighborhood}` : ""}`);
+  const pickSlot = (slot: string) => {
+    if (!selected || !agentSlug) return;
+    onSendRaw(`[biz:${selected.place_id} agent:${agentSlug}] yes book ${slot}`);
   };
 
   return (
-    <div className="atlas-page">
-      <ChatPanel
-        tenantId={tenantId}
-        status={status}
-        items={items}
-        thinking={thinking}
-        candidates={candidates}
-        activeName={activeName}
-        action={action}
-        locStatus={locStatus}
-        userLoc={userLoc}
-        onSend={send}
-        onPickCandidate={pickCandidate}
-        onPickSlot={pickSlot}
-        onNewSession={newSession}
-        onRequestLocation={requestLocation}
-      />
+    <div className="h-full grid grid-cols-[1fr_420px] bg-paper-100 overflow-hidden">
+      {/* ─── LEFT: map ─── */}
+      <section className="relative min-w-0 bg-[var(--color-map-land)] overflow-hidden">
+        <MapSurface
+          businesses={filtered}
+          selectedId={selectedId}
+          onSelect={onSelect}
+          userLoc={userLoc}
+        />
+        <MapSearch
+          query={query}
+          onQueryChange={setQuery}
+          vertical={verticalFilter}
+          onVerticalChange={setVerticalFilter}
+          resultCount={filtered.length}
+        />
+      </section>
 
-      <section className="atlas-map">
-        {MAPS_KEY ? <GoogleMapHost pins={pins} userLoc={userLoc} /> : <MapCanvas pins={pins} />}
-
-        {(active || action) && (
-          <PlaceCard
-            place={active}
-            action={action}
-            onClose={() => setActiveName(null)}
-            onPickSlot={pickSlot}
-          />
+      {/* ─── RIGHT: 420px rail ─── */}
+      <aside className="flex flex-col min-h-0 bg-white border-l border-paper-500/60">
+        {selected && agentSlug ? (
+          <>
+            <BusinessHeader business={selected} />
+            <AgentStrip
+              vertical={selected.vertical}
+              active={agentSlug}
+              onPick={setAgentSelection}
+            />
+            <ChatPanel
+              business={selected}
+              agent={agentBySlug(agentSlug)}
+              status={status}
+              items={items}
+              thinking={thinking}
+              action={action}
+              onSendRaw={onSendRaw}
+              onPickSlot={pickSlot}
+            />
+          </>
+        ) : (
+          <EmptyState />
         )}
 
-        <div className="map-controls" aria-hidden>
-          <button title="Zoom in">+</button>
-          <button title="Zoom out">−</button>
-        </div>
-      </section>
+        <SessionBar
+          tenantId={tenantId}
+          status={status}
+          locStatus={locStatus}
+          userLoc={userLoc}
+          onNewSession={newSession}
+          onRequestLocation={requestLocation}
+        />
+      </aside>
     </div>
   );
 }
 
 /* ───────────────────────────── helpers ───────────────────────────── */
 
-interface DerivedState {
-  candidates: Candidate[];
-  action: PlaceAction;
-}
-
-function deriveFromTimeline(items: TimelineItem[]): DerivedState {
-  let action: PlaceAction = null;
-  let candidates: Candidate[] = [];
-
-  for (let i = items.length - 1; i >= 0; i--) {
-    const it = items[i];
-    if (it.kind !== "reply") continue;
-    const r = it.reply;
-
-    if (r.role === "say") {
-      const a = (r.content as { action?: unknown }).action as Record<string, unknown> | null;
-      if (a && !action) {
-        const kind = String(a.kind || "");
-        if (kind === "offer_slots") {
-          action = { kind, slots: Array.isArray(a.slots) ? (a.slots as unknown[]).map(String) : [] };
-        } else if (kind === "booking_confirmed") {
-          action = {
-            kind,
-            business_name: String(a.business_name || ""),
-            slot: String(a.slot || ""),
-            booking_id: String(a.booking_id || ""),
-          };
-        } else if (kind === "booking_failed") {
-          action = { kind, reason: String(a.reason || "unknown error") };
-        } else if (kind === "show_candidates" && candidates.length === 0) {
-          const list = Array.isArray(a.candidates) ? a.candidates as Record<string, unknown>[] : [];
-          candidates = list.map(toCandidate);
-        }
-      }
-    } else if (r.role === "resolve_business" && candidates.length === 0) {
-      const c = r.content as Record<string, unknown>;
-      const list = Array.isArray(c.candidates) ? c.candidates as Record<string, unknown>[] : [];
-      if (list.length > 0) candidates = list.map(toCandidate);
-      else if (c.name) candidates = [toCandidate(c)];
-    }
+function freshId(): string {
+  // crypto.randomUUID is pure under React's rules; Math.random isn't.
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `web-${crypto.randomUUID().slice(0, 8)}`;
   }
-
-  return { candidates, action };
+  // Fallback for ancient environments — still pure across renders because
+  // we only call this in event handlers, not in render bodies.
+  const arr = new Uint8Array(4);
+  crypto.getRandomValues(arr);
+  return `web-${Array.from(arr).map((b) => b.toString(16).padStart(2, "0")).join("")}`;
 }
 
-function toCandidate(c: Record<string, unknown>): Candidate {
-  return {
-    name: String(c.name || "(unknown)"),
-    neighborhood: c.neighborhood ? String(c.neighborhood)
-                  : c.city ? String(c.city)
-                  : c.address ? String(c.address) : undefined,
-    price: c.price ? String(c.price) : undefined,
-    category: c.category ? String(c.category)
-              : c.type ? String(c.type) : undefined,
-    platform: c.platform ? String(c.platform)
-              : c.source ? String(c.source) : undefined,
-  };
-}
-
-function stableId(key: string, fallback: string | null): string {
+function readOrCreateId(key: string): string {
   const existing = sessionStorage.getItem(key) || localStorage.getItem(key);
   if (existing) return existing;
-  const fresh = fallback || `web-${Math.random().toString(36).slice(2, 10)}`;
+  const fresh = freshId();
   sessionStorage.setItem(key, fresh);
   return fresh;
 }
 
-/* ─────── Google Map host (mounted only when VITE_GOOGLE_MAPS_KEY is set) ─────── */
-
-/**
- * Pins arrive in the same 0..100 viewBox coordinate system as the SVG
- * fallback uses; we project that onto a tight bounds rectangle around the
- * map center so a 6-pin spread fits on screen. Markers are stable across
- * re-renders (diffed by label).
- */
-function GoogleMapHost({
-  pins,
-  userLoc,
-}: {
-  pins: MapPin[];
-  userLoc: { lat: number; lng: number } | null;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<google.maps.Map | null>(null);
-  const userMarkerRef = useRef<google.maps.Marker | null>(null);
-  const markersRef = useRef<Map<string, google.maps.Marker>>(new Map());
-
-  useEffect(() => {
-    if (!MAPS_KEY || !ref.current) return;
-    let cancelled = false;
-    (async () => {
-      const { setOptions, importLibrary } = await import("@googlemaps/js-api-loader");
-      setOptions({ key: MAPS_KEY!, v: "weekly" });
-      const { Map: GMap } = await importLibrary("maps");
-      if (cancelled || !ref.current) return;
-      mapRef.current = new GMap(ref.current, {
-        center: userLoc || { lat: 19.0760, lng: 72.8777 },
-        zoom: 14,
-        mapTypeControl: false,
-        streetViewControl: false,
-        fullscreenControl: true,
-        zoomControl: true,
-      });
-    })();
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Recenter + drop a blue "you are here" dot when geolocation resolves.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !userLoc) return;
-    map.panTo(userLoc);
-    if (userMarkerRef.current) {
-      userMarkerRef.current.setPosition(userLoc);
-    } else {
-      userMarkerRef.current = new google.maps.Marker({
-        position: userLoc,
-        map,
-        title: "Your location",
-        icon: {
-          path: google.maps.SymbolPath.CIRCLE,
-          fillColor: "#1A73E8",
-          fillOpacity: 1,
-          strokeColor: "#FFFFFF",
-          strokeWeight: 3,
-          scale: 8,
-        },
-        zIndex: 9999,
-      });
-    }
-  }, [userLoc]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    const center = map.getCenter();
-    if (!center) return;
-    const lat0 = center.lat();
-    const lng0 = center.lng();
-    const span = 0.014;
-    const projectLat = (y: number) => lat0 + (50 - y) * (span / 100);
-    const projectLng = (x: number) => lng0 + (x - 50) * (span / 100);
-
-    const seen = new Set<string>();
-    let activePos: google.maps.LatLngLiteral | null = null;
-    for (const p of pins) {
-      seen.add(p.label);
-      const pos = { lat: projectLat(p.y), lng: projectLng(p.x) };
-      const iconSize = p.primary ? 36 : 28;
-      const iconUrl = p.primary ? PIN_ICON_PRIMARY : PIN_ICON_DEFAULT;
-      const icon = {
-        url: iconUrl,
-        scaledSize: new google.maps.Size(iconSize, iconSize),
-        anchor: new google.maps.Point(iconSize / 2, iconSize),
+function deriveAction(items: TimelineItem[]): ChatAction {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i];
+    if (it.kind !== "reply") continue;
+    const r = it.reply;
+    if (r.role !== "say") continue;
+    const a = (r.content as { action?: unknown }).action as Record<string, unknown> | null;
+    if (!a) continue;
+    const kind = String(a.kind || "");
+    if (kind === "offer_slots") {
+      return {
+        kind,
+        slots: Array.isArray(a.slots) ? (a.slots as unknown[]).map(String) : [],
+        business_name: a.business_name ? String(a.business_name) : undefined,
       };
-      const existing = markersRef.current.get(p.label);
-      if (existing) {
-        existing.setPosition(pos);
-        existing.setIcon(icon);
-      } else {
-        markersRef.current.set(p.label, new google.maps.Marker({ position: pos, map, title: p.label, icon }));
-      }
-      if (p.primary) activePos = pos;
     }
-    for (const [label, marker] of markersRef.current) {
-      if (!seen.has(label)) { marker.setMap(null); markersRef.current.delete(label); }
+    if (kind === "booking_confirmed") {
+      return {
+        kind,
+        business_name: String(a.business_name || ""),
+        slot: String(a.slot || ""),
+        booking_id: String(a.booking_id || ""),
+      };
     }
-    if (activePos) map.panTo(activePos);
-  }, [pins]);
-
-  return <div className="gmap-host"><div ref={ref} /></div>;
+    if (kind === "booking_failed") {
+      return { kind, reason: String(a.reason || "unknown error") };
+    }
+  }
+  return null;
 }
-
-const PIN_ICON_DEFAULT =
-  "data:image/svg+xml;utf8," +
-  encodeURIComponent(
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28">
-       <circle cx="14" cy="14" r="6" fill="#0E1116" stroke="#FBF7EE" stroke-width="2"/>
-     </svg>`,
-  );
-const PIN_ICON_PRIMARY =
-  "data:image/svg+xml;utf8," +
-  encodeURIComponent(
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36">
-       <defs>
-         <linearGradient id="g" x1="0" x2="1" y1="0" y2="1">
-           <stop offset="0" stop-color="#1A73E8"/>
-           <stop offset=".55" stop-color="#A672E0"/>
-           <stop offset="1" stop-color="#E26478"/>
-         </linearGradient>
-       </defs>
-       <circle cx="18" cy="18" r="14" fill="none" stroke="url(#g)" stroke-width="1.4" opacity=".45"/>
-       <circle cx="18" cy="18" r="8"  fill="url(#g)" stroke="#FBF7EE" stroke-width="2.5"/>
-     </svg>`,
-  );
