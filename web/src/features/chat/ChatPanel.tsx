@@ -27,10 +27,17 @@ import type { Business } from "../places/types";
 import type { AgentDef } from "../agents/registry";
 import { metaFor } from "../places/verticals";
 
+export interface SearchMatch {
+  place_id: string;
+  display_name: string;
+  vertical: string;
+}
+
 export type ChatAction =
   | { kind: "offer_slots"; slots: string[]; business_name?: string }
   | { kind: "booking_confirmed"; business_name: string; slot: string; booking_id: string }
   | { kind: "booking_failed"; reason: string }
+  | { kind: "search_results"; note?: string; place_ids: string[]; matches?: SearchMatch[] }
   | null;
 
 interface Props {
@@ -40,8 +47,10 @@ interface Props {
   items: TimelineItem[];
   thinking: boolean;
   action: ChatAction;
+  pendingBookingSlot?: string | null;
   onSendRaw: (text: string) => boolean;
   onPickSlot?: (slot: string) => void;
+  onPickSearchResult?: (placeId: string) => void;
 }
 
 export default function ChatPanel({
@@ -51,8 +60,10 @@ export default function ChatPanel({
   items,
   thinking,
   action,
+  pendingBookingSlot,
   onSendRaw,
   onPickSlot,
+  onPickSearchResult,
 }: Props) {
   const [draft, setDraft] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -152,6 +163,7 @@ export default function ChatPanel({
                 const ok = !Number.isNaN(d.getTime());
                 const when = ok ? d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : slot;
                 const day = ok ? d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) : "";
+                const isPending = pendingBookingSlot === slot;
                 return (
                   <Button
                     key={slot}
@@ -160,13 +172,46 @@ export default function ChatPanel({
                     size="sm"
                     className="h-auto py-1.5 px-3 flex-col items-start"
                     onClick={() => onPickSlot?.(slot)}
-                    disabled={!onPickSlot || status !== "connected"}
+                    disabled={!onPickSlot || status !== "connected" || isPending}
                   >
-                    <span className="font-medium text-ink-700">{when}</span>
-                    {day && <span className="text-[10px] text-ink-100">{day}</span>}
+                    {isPending ? (
+                      <span className="flex items-center gap-1.5 text-ink-700">
+                        <ThinkingDots />
+                        <span className="font-medium">Confirming…</span>
+                      </span>
+                    ) : (
+                      <>
+                        <span className="font-medium text-ink-700">{when}</span>
+                        {day && <span className="text-[10px] text-ink-100">{day}</span>}
+                      </>
+                    )}
                   </Button>
                 );
               })}
+            </div>
+          </div>
+        )}
+
+        {action?.kind === "search_results" && action.place_ids.length > 0 && (
+          <div className="mr-auto max-w-full rounded-xl bg-paper-100 border border-paper-500 p-3 space-y-2">
+            <div className="text-xs text-ink-100">
+              Found {action.place_ids.length} {action.place_ids.length === 1 ? "place" : "places"}:
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {(action.matches && action.matches.length > 0
+                ? action.matches
+                : action.place_ids.map((pid) => ({ place_id: pid, display_name: pid, vertical: "" }))
+              ).map((m) => (
+                <button
+                  key={m.place_id}
+                  type="button"
+                  onClick={() => onPickSearchResult?.(m.place_id)}
+                  disabled={!onPickSearchResult}
+                  className="h-7 px-2.5 rounded-full text-[12px] font-medium border border-paper-600 bg-white text-ink-700 hover:border-iri-blue hover:text-iri-blue transition-colors disabled:opacity-50"
+                >
+                  {m.display_name}
+                </button>
+              ))}
             </div>
           </div>
         )}

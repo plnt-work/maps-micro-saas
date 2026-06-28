@@ -37,6 +37,9 @@ interface Props {
   selectedId: string | null;
   onSelect: (id: string) => void;
   userLoc?: { lat: number; lng: number } | null;
+  /** Optional set of place_ids to render with a stronger accent ring.
+   *  Used by SearchResultBanner to surface the agent's matches on the map. */
+  highlightedPlaceIds?: Set<string>;
 }
 
 export default function MapSurface(props: Props) {
@@ -59,7 +62,7 @@ export default function MapSurface(props: Props) {
   );
 }
 
-function MapBody({ businesses, selectedId, onSelect, userLoc }: Props) {
+function MapBody({ businesses, selectedId, onSelect, userLoc, highlightedPlaceIds }: Props) {
   const map = useMap();
 
   const fitToBusinesses = useCallback(() => {
@@ -90,13 +93,14 @@ function MapBody({ businesses, selectedId, onSelect, userLoc }: Props) {
       {businesses.map((b) => {
         const meta = metaFor(b.vertical);
         const isSelected = b.place_id === selectedId;
+        const isHighlighted = !isSelected && !!highlightedPlaceIds?.has(b.place_id);
         return (
           <AdvancedMarker
             key={b.place_id}
             position={{ lat: b.lat, lng: b.lng }}
             title={b.display_name}
             onClick={() => onSelect(b.place_id)}
-            zIndex={isSelected ? 1000 : undefined}
+            zIndex={isSelected ? 1000 : isHighlighted ? 500 : undefined}
           >
             <div className="relative grid place-items-center">
               {isSelected && (
@@ -109,11 +113,21 @@ function MapBody({ businesses, selectedId, onSelect, userLoc }: Props) {
                   }}
                 />
               )}
+              {isHighlighted && (
+                <span
+                  aria-hidden
+                  className="absolute size-6 rounded-full animate-pulse-soft"
+                  style={{
+                    background: `${meta.color}26`,
+                    boxShadow: `0 0 0 4px ${meta.color}33`,
+                  }}
+                />
+              )}
               <Pin
                 background={meta.color}
                 borderColor={meta.border}
                 glyphColor={meta.glyph}
-                scale={isSelected ? 1.15 : 1.0}
+                scale={isSelected ? 1.15 : isHighlighted ? 1.08 : 1.0}
               />
             </div>
           </AdvancedMarker>

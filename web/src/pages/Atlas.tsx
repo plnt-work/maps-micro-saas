@@ -27,8 +27,9 @@ import MapSurface from "../features/places/MapSurface";
 import MapSearch from "../features/places/MapSearch";
 import BusinessHeader from "../features/places/BusinessHeader";
 import EmptyState from "../features/places/EmptyState";
+import SearchResultBanner from "../features/places/SearchResultBanner";
 import AgentStrip from "../features/agents/AgentStrip";
-import ChatPanel, { type ChatAction } from "../features/chat/ChatPanel";
+import ChatPanel, { type ChatAction, type SearchMatch } from "../features/chat/ChatPanel";
 import SessionBar, { type LocStatus } from "../features/chat/SessionBar";
 import { useWsChat, type TimelineItem } from "../features/chat/useWsChat";
 
@@ -167,10 +168,66 @@ export default function Atlas() {
     [rawSend, userLoc],
   );
 
+  // ─── optimistic booking-slot state ────────────────────────────────
+  // The MA stream takes ~10s to return a booking_confirmed, so the chip
+  // looks dead in the meantime. We capture the items.length at pick-time;
+  // the derived `pendingBookingSlot` clears itself once any booking_*
+  // reply lands beyond that mark. Pure derivation — no effect-based
+  // state syncing, which the project's react-hooks lint forbids.
+  const [pendingPick, setPendingPick] = useState<{ slot: string; markItemsLen: number } | null>(null);
+
+  const pendingBookingSlot = useMemo(() => {
+    if (!pendingPick) return null;
+    for (let i = pendingPick.markItemsLen; i < items.length; i++) {
+      const it = items[i];
+      if (it.kind !== "reply") continue;
+      const r = it.reply;
+      if (r.role !== "say") continue;
+      const a = (r.content as { action?: unknown }).action as Record<string, unknown> | null;
+      if (!a) continue;
+      const kind = String(a.kind || "");
+      if (kind === "booking_confirmed" || kind === "booking_failed") return null;
+    }
+    return pendingPick.slot;
+  }, [items, pendingPick]);
+
   const pickSlot = (slot: string) => {
     if (!selected || !agentSlug) return;
+    setPendingPick({ slot, markItemsLen: items.length });
     onSendRaw(`[biz:${selected.place_id} agent:${agentSlug}] yes book ${slot}`);
   };
+
+  // ─── search-result banner dismissal ───────────────────────────────
+  // Signature = sorted place_ids; when the agent emits a new set we
+  // reset and show again. Dismissing zeroes the MapSearch query too,
+  // per W1 spec.
+  const [dismissedBannerSig, setDismissedBannerSig] = useState<string | null>(null);
+  const searchAction = action?.kind === "search_results" ? action : null;
+  const bannerSig = searchAction ? searchAction.place_ids.slice().sort().join(",") : null;
+  const showBanner = !selectedId && !!searchAction && bannerSig !== dismissedBannerSig;
+  const highlightedPlaceIds = useMemo(
+    () => (showBanner && searchAction ? new Set(searchAction.place_ids) : undefined),
+    [showBanner, searchAction],
+  );
+  const bannerMatches: SearchMatch[] = useMemo(() => {
+    if (!searchAction) return [];
+    if (searchAction.matches && searchAction.matches.length > 0) return searchAction.matches;
+    // Fallback: hydrate display_name from the local seed if the MA stream
+    // only sent place_ids. Anything unmatched gets the bare id as label.
+    return searchAction.place_ids.map((pid) => {
+      const b = SAMPLE_BUSINESSES.find((x) => x.place_id === pid);
+      return {
+        place_id: pid,
+        display_name: b?.display_name || pid,
+        vertical: b?.vertical || "",
+      };
+    });
+  }, [searchAction]);
+
+  const dismissBanner = useCallback(() => {
+    setDismissedBannerSig(bannerSig);
+    setQuery("");
+  }, [bannerSig]);
 
   return (
     <div className="h-full grid grid-cols-[1fr_420px] bg-paper-100 overflow-hidden">
@@ -181,6 +238,7 @@ export default function Atlas() {
           selectedId={selectedId}
           onSelect={onSelect}
           userLoc={userLoc}
+          highlightedPlaceIds={highlightedPlaceIds}
         />
         <MapSearch
           query={query}
@@ -189,6 +247,14 @@ export default function Atlas() {
           onVerticalChange={setVerticalFilter}
           resultCount={filtered.length}
         />
+        {showBanner && searchAction && (
+          <SearchResultBanner
+            note={searchAction.note}
+            matches={bannerMatches}
+            onPick={setSelectedId}
+            onDismiss={dismissBanner}
+          />
+        )}
       </section>
 
       {/* ─── RIGHT: 420px rail ─── */}
@@ -208,8 +274,10 @@ export default function Atlas() {
               items={items}
               thinking={thinking}
               action={action}
+              pendingBookingSlot={pendingBookingSlot}
               onSendRaw={onSendRaw}
               onPickSlot={pickSlot}
+              onPickSearchResult={setSelectedId}
             />
           </>
         ) : (
@@ -277,6 +345,26 @@ function deriveAction(items: TimelineItem[]): ChatAction {
     }
     if (kind === "booking_failed") {
       return { kind, reason: String(a.reason || "unknown error") };
+    }
+    if (kind === "search_results") {
+      const place_ids = Array.isArray(a.place_ids) ? (a.place_ids as unknown[]).map(String) : [];
+      const rawMatches = Array.isArray(a.matches) ? (a.matches as unknown[]) : [];
+      const matches: SearchMatch[] = rawMatches
+        .map((m) => {
+          const o = (m || {}) as Record<string, unknown>;
+          return {
+            place_id: String(o.place_id || ""),
+            display_name: String(o.display_name || ""),
+            vertical: String(o.vertical || ""),
+          };
+        })
+        .filter((m) => m.place_id);
+      return {
+        kind,
+        note: a.note ? String(a.note) : undefined,
+        place_ids,
+        matches: matches.length > 0 ? matches : undefined,
+      };
     }
   }
   return null;
