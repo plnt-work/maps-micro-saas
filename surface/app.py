@@ -12,6 +12,12 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from channels.web_ws import router as web_ws_router
 from surface.admin import router as admin_router
+from surface.admin_v2 import router as admin_v2_router, marketplace_router
+from surface.auth import router as auth_router
+from surface.bookings_v2 import router as bookings_v2_router
+from surface.catalogue_admin import router as catalogue_admin_router
+from surface.push import router as push_router
+from surface.venues import router as venues_router
 
 
 def create_app() -> FastAPI:
@@ -48,6 +54,13 @@ def create_app() -> FastAPI:
 
     app.include_router(web_ws_router)
     app.include_router(admin_router)
+    app.include_router(admin_v2_router)
+    app.include_router(marketplace_router)
+    app.include_router(auth_router)
+    app.include_router(bookings_v2_router)
+    app.include_router(catalogue_admin_router)
+    app.include_router(push_router)
+    app.include_router(venues_router)
     return app
 
 

@@ -26,6 +26,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import MapSurface from "../features/places/MapSurface";
 import MapSearch from "../features/places/MapSearch";
 import BusinessHeader from "../features/places/BusinessHeader";
+import BusinessDetails from "../features/places/BusinessDetails";
 import EmptyState from "../features/places/EmptyState";
 import SearchResultBanner from "../features/places/SearchResultBanner";
 import AgentStrip from "../features/agents/AgentStrip";
@@ -197,6 +198,18 @@ export default function Atlas() {
     onSendRaw(`[biz:${selected.place_id} agent:${agentSlug}] yes book ${slot}`);
   };
 
+  // Tappable menu / service / class chips dispatch a real chat message
+  // through the same envelope so the MA stream gets `[biz: agent:]` scoped
+  // context. Keeps the no-vibe-code rule: nothing decorative, every chip
+  // sends a real turn.
+  const askAboutBusiness = useCallback(
+    (text: string) => {
+      if (!selected || !agentSlug) return;
+      onSendRaw(`[biz:${selected.place_id} agent:${agentSlug}] ${text}`);
+    },
+    [selected, agentSlug, onSendRaw],
+  );
+
   // ─── search-result banner dismissal ───────────────────────────────
   // Signature = sorted place_ids; when the agent emits a new set we
   // reset and show again. Dismissing zeroes the MapSearch query too,
@@ -262,6 +275,7 @@ export default function Atlas() {
         {selected && agentSlug ? (
           <>
             <BusinessHeader business={selected} />
+            <BusinessDetails business={selected} onAsk={askAboutBusiness} />
             <AgentStrip
               vertical={selected.vertical}
               active={agentSlug}

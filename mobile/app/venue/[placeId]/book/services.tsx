@@ -74,7 +74,6 @@ export default function ServicesStep() {
         <FlashList
           data={data ?? []}
           keyExtractor={(s) => s.id}
-          estimatedItemSize={72}
           renderItem={renderItem}
           extraData={services}
           contentContainerStyle={{ paddingBottom: 16 }}

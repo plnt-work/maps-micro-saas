@@ -8,6 +8,7 @@
 //   │       custom MarkerPills    │
 //   │                             │
 //   │ ▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔ <— handle  │
+//   │ [SearchResultsBanner?]      │  sticky in sheet (agent reply)
 //   │ <FilterChips>               │  sticky in sheet
 //   │ X venues nearby             │
 //   │ <FlashList of VenueCard>    │
@@ -20,8 +21,11 @@ import { Text, View } from "react-native";
 // Map import goes through MapShim so the web bundle resolves to a
 // placeholder; native uses react-native-maps directly.
 import MapView, { Marker, PROVIDER_GOOGLE, type Region } from "@/features/places/MapShim";
-import BottomSheet, { BottomSheetFlashList } from "@gorhom/bottom-sheet";
-import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
+import BottomSheet, {
+  BottomSheetModalProvider,
+  useBottomSheetScrollableCreator,
+} from "@gorhom/bottom-sheet";
+import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Location from "expo-location";
 
@@ -29,10 +33,12 @@ import { SearchPill } from "@/components/SearchPill";
 import { FilterChips } from "@/features/places/FilterChips";
 import { MarkerPill } from "@/features/places/MarkerPill";
 import { VenueCard } from "@/features/places/VenueCard";
+import { SearchResultsBanner } from "@/features/places/SearchResultsBanner";
 import { FilterDrawer, type FilterDrawerHandle, type FilterValue } from "@/components/FilterDrawer";
 import { CATEGORIES } from "@/features/places/categories";
 import { filterVenues } from "@/features/places/filter";
 import { useSearch, setSearch } from "@/features/search/store";
+import { useHomeSearchDispatch } from "@/features/chat/useHomeSearchDispatch";
 
 import { SAMPLE_BUSINESSES, COLABA_CENTER } from "@web/places/sample-businesses";
 import type { Business } from "@web/places/types";
@@ -65,14 +71,30 @@ function HomeInner() {
   });
 
   const mapRef = useRef<MapView>(null);
-  // BottomSheetFlashList's forwardRef erases the inner FlashList ref's
-  // shape; we only need scrollToIndex, so a minimal interface keeps the
-  // call site type-safe without dragging the full FlashList type in.
-  const listRef = useRef<{ scrollToIndex(args: { index: number; animated?: boolean }): void } | null>(null);
+  const listRef = useRef<FlashListRef<Business>>(null);
   const sheetRef = useRef<BottomSheet>(null);
   const drawerRef = useRef<FilterDrawerHandle>(null);
 
   const snapPoints = useMemo(() => ["12%", "45%", "90%"], []);
+
+  // ─── search WS — owns the only Home dispatcher ───────────────────
+  const { dispatch, banner, searchResultsPlaceIds } = useHomeSearchDispatch({
+    userLoc: search.userLoc,
+  });
+
+  // /search modal writes search.query → fire the freeform turn here so
+  // there is exactly one WS connection backing Home.
+  const lastDispatchedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const q = search.query;
+    if (!q) {
+      lastDispatchedRef.current = null;
+      return;
+    }
+    if (lastDispatchedRef.current === q) return;
+    lastDispatchedRef.current = q;
+    dispatch(q);
+  }, [search.query, dispatch]);
 
   // ─── location bootstrap ──────────────────────────────────────────
   useEffect(() => {
@@ -113,19 +135,27 @@ function HomeInner() {
   // ─── unified filter ──────────────────────────────────────────────
   // Chip-row vertical + drawer-form vertical resolve to the same field;
   // chip wins because it's the foreground gesture. The query from
-  // /search lands here too.
+  // /search lands here too — and when the agent returns
+  // action.kind="search_results", that place_id set replaces the
+  // client-side text filter.
   const cat = CATEGORIES.find((c) => c.key === activeCategory);
   const effectiveVertical = cat?.vertical ?? filterValue.vertical;
 
-  const filtered: Business[] = useMemo(
-    () =>
-      filterVenues(SAMPLE_BUSINESSES, {
-        vertical: effectiveVertical,
-        query: search.query,
-        minRating: filterValue.minRating || undefined,
-      }),
-    [effectiveVertical, search.query, filterValue.minRating],
-  );
+  const filtered: Business[] = useMemo(() => {
+    if (searchResultsPlaceIds) {
+      // Agent-driven result set — preserve agent's order, ignore the
+      // text query (already factored into the agent's choice).
+      const byId = new Map(SAMPLE_BUSINESSES.map((b) => [b.place_id, b]));
+      return searchResultsPlaceIds
+        .map((id) => byId.get(id))
+        .filter((b): b is Business => Boolean(b));
+    }
+    return filterVenues(SAMPLE_BUSINESSES, {
+      vertical: effectiveVertical,
+      query: search.query,
+      minRating: filterValue.minRating || undefined,
+    });
+  }, [searchResultsPlaceIds, effectiveVertical, search.query, filterValue.minRating]);
 
   // ─── marker / card sync ──────────────────────────────────────────
   const indexOfSelected = useMemo(() => {
@@ -161,6 +191,11 @@ function HomeInner() {
       setActiveCategory("all");
     }
   }, []);
+
+  const onClearBanner = useCallback(() => {
+    banner?.dismiss();
+    setSearch({ query: null });
+  }, [banner]);
 
   // ─── render ──────────────────────────────────────────────────────
   return (
@@ -206,33 +241,15 @@ function HomeInner() {
         backgroundStyle={{ backgroundColor: "#FFFFFF" }}
         handleIndicatorStyle={{ backgroundColor: "#B6AE96" }}
       >
-        <FilterChips
-          activeKey={activeCategory}
-          onPickCategory={setActiveCategory}
-          onOpenFilters={() => drawerRef.current?.open()}
-        />
-        <View className="px-4 pt-3 pb-1 bg-white">
-          <Text className="text-ink-800 text-base font-semibold">
-            {filtered.length} {filtered.length === 1 ? "venue" : "venues"} nearby
-          </Text>
-        </View>
-        <BottomSheetFlashList
-          // @gorhom/bottom-sheet's forwardRef erases the inner FlashList's
-          // ref shape; cast through unknown so our minimal scrollToIndex
-          // interface (declared on listRef) is what survives at the call site.
-          ref={listRef as unknown as React.Ref<React.FC<unknown>>}
-          data={filtered}
-          keyExtractor={(b) => b.place_id}
-          estimatedItemSize={120}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
-          extraData={selectedId}
-          renderItem={({ item, index }) => (
-            <VenueCard
-              business={item}
-              variant="wide"
-              highlighted={index === indexOfSelected}
-            />
-          )}
+        <SheetContents
+          banner={banner ? { text: banner.text, onClear: onClearBanner } : null}
+          activeCategory={activeCategory}
+          setActiveCategory={setActiveCategory}
+          openFilters={() => drawerRef.current?.open()}
+          listRef={listRef}
+          filtered={filtered}
+          selectedId={selectedId}
+          indexOfSelected={indexOfSelected}
         />
       </BottomSheet>
 
@@ -242,5 +259,65 @@ function HomeInner() {
         onApply={onApplyFilters}
       />
     </View>
+  );
+}
+
+interface SheetContentsProps {
+  banner: { text: string; onClear: () => void } | null;
+  activeCategory: string;
+  setActiveCategory: (k: string) => void;
+  openFilters: () => void;
+  listRef: React.RefObject<FlashListRef<Business> | null>;
+  filtered: Business[];
+  selectedId: string | null;
+  indexOfSelected: number;
+}
+
+// Hoisted out of HomeInner because useBottomSheetScrollableCreator
+// must run inside the BottomSheet's children — it pulls drag/scroll
+// context from the surrounding sheet.
+function SheetContents({
+  banner,
+  activeCategory,
+  setActiveCategory,
+  openFilters,
+  listRef,
+  filtered,
+  selectedId,
+  indexOfSelected,
+}: SheetContentsProps) {
+  // Replaces the deprecated BottomSheetFlashList wrapper per gorhom's
+  // migration guide — hand the inner ScrollView to FlashList directly.
+  const renderScrollComponent = useBottomSheetScrollableCreator();
+
+  return (
+    <>
+      {banner ? <SearchResultsBanner text={banner.text} onClear={banner.onClear} /> : null}
+      <FilterChips
+        activeKey={activeCategory}
+        onPickCategory={setActiveCategory}
+        onOpenFilters={openFilters}
+      />
+      <View className="px-4 pt-3 pb-1 bg-white">
+        <Text className="text-ink-800 text-base font-semibold">
+          {filtered.length} {filtered.length === 1 ? "venue" : "venues"} nearby
+        </Text>
+      </View>
+      <FlashList
+        ref={listRef}
+        renderScrollComponent={renderScrollComponent}
+        data={filtered}
+        keyExtractor={(b) => b.place_id}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
+        extraData={selectedId}
+        renderItem={({ item, index }) => (
+          <VenueCard
+            business={item}
+            variant="wide"
+            highlighted={index === indexOfSelected}
+          />
+        )}
+      />
+    </>
   );
 }

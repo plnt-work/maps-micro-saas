@@ -1,14 +1,13 @@
-// /search — modal-presented full-screen text input that submits via
-// useHomeSearchDispatch (the same WS-envelope dispatch P1 wired) and
-// also patches the shared search store so Home re-renders with the
-// new query / clears it. Cancel just dismisses.
+// /search — modal-presented full-screen text input. Submits a query
+// into the shared search store; Home subscribes and fires the WS
+// dispatch from there (one WS connection per process). Cancel just
+// dismisses.
 import { useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Search, X } from "lucide-react-native";
 
-import { useHomeSearchDispatch } from "@/features/chat/useHomeSearchDispatch";
 import { setSearch, useSearch } from "@/features/search/store";
 
 export default function SearchScreen() {
@@ -16,16 +15,9 @@ export default function SearchScreen() {
   const current = useSearch();
   const [value, setValue] = useState<string>(current.query ?? "");
 
-  const dispatch = useHomeSearchDispatch({ userLoc: current.userLoc });
-
   const submit = () => {
     const trimmed = value.trim();
-    if (!trimmed) {
-      setSearch({ query: null });
-    } else {
-      setSearch({ query: trimmed });
-      dispatch(trimmed);
-    }
+    setSearch({ query: trimmed || null });
     router.back();
   };
 

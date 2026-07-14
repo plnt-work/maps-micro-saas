@@ -125,8 +125,11 @@ async def run_microagent(req_dict: dict[str, Any]) -> dict[str, Any]:
 async def notify_booking(req_dict: dict[str, Any]) -> dict[str, Any]:
     """Saga step — dispatches the `notify_send` tool directly (no LLM).
 
-    The tool is a no-op today; real per-tenant adapter dispatch lands in
-    MA-P4. Failure raises so the saga compensates via cancel_booking.
+    Pushes through Expo when the user has a registered device; otherwise
+    the tool records channel='no-token' and returns sent=False without
+    raising. Failure to reach Expo does not raise here either — the saga's
+    compensation semantics are keyed on Activity exceptions, and a missing
+    device should not roll back the booking.
     """
     tenant_id = str(req_dict.get("tenant_id") or "")
     user_id = str(req_dict.get("user_id") or "")
@@ -135,11 +138,134 @@ async def notify_booking(req_dict: dict[str, Any]) -> dict[str, Any]:
     ctx = TenantContext(tenant_id, user_id, session_id)
     result = dispatch_tool("notify_send", ctx, {
         "booking_id": booking_id,
-        "channel": str(req_dict.get("channel") or "noop"),
+        "channel": str(req_dict.get("channel") or "push"),
         "message": str(req_dict.get("message") or ""),
     })
     activity.logger.info(
-        "notify_booking: tenant=%s session=%s booking_id=%s channel=%s",
-        tenant_id, session_id, booking_id, result.get("channel"),
+        "notify_booking: tenant=%s session=%s booking_id=%s sent=%s channel=%s",
+        tenant_id, session_id, booking_id,
+        bool(result.get("sent")), result.get("channel"),
     )
-    return result
+    return {
+        **result,
+        "sent": bool(result.get("sent", False)),
+        "channel": str(result.get("channel") or "unknown"),
+    }
+
+
+# ─────────────────────────────────────────────────────────── orders (multi-service)
+
+
+@activity.defn(name="create_order")
+async def create_order(req_dict: dict[str, Any]) -> dict[str, Any]:
+    """Multi-service order create — idempotency-keyed.
+
+    When `provider != "local"` the adapter is invoked first; the local
+    ledger row records the provider outcome (provider_ref = reservation id
+    on confirmed, URL on deeplink, empty on fallback).
+    """
+    from services.orders_store import orders_for, order_to_dict
+    from providers.registry import get_provider
+
+    tenant_id = str(req_dict.get("tenant_id") or "")
+    user_id = str(req_dict.get("user_id") or "")
+    session_id = str(req_dict.get("session_id") or "")
+    place_id = str(req_dict.get("place_id") or "")
+    venue_name = str(req_dict.get("venue_name") or "")
+    date = str(req_dict.get("date") or "")
+    slot = str(req_dict.get("slot") or "")
+    pro_id = str(req_dict.get("pro_id") or "")
+    services_list = list(req_dict.get("services") or [])
+    idempotency_key = str(req_dict.get("idempotency_key") or "")
+    provider_name = str(req_dict.get("provider") or "local")
+    user_contact = str(req_dict.get("user_contact") or "")
+
+    if not (tenant_id and user_id and place_id and date and slot and idempotency_key):
+        raise ValueError("create_order: missing required fields")
+    if not services_list:
+        raise ValueError("create_order: services must be non-empty")
+
+    provider_ref = ""
+    provider_kind = ""
+    if provider_name and provider_name != "local":
+        adapter = get_provider(provider_name)
+        if adapter is not None:
+            slot_iso = f"{date}T{slot}" if "T" not in slot else slot
+            pr = adapter.book(
+                provider_id=place_id,
+                slot=slot_iso,
+                user_contact=user_contact,
+                idempotency_key=idempotency_key,
+            )
+            provider_kind = pr.kind
+            if pr.kind in ("confirmed", "deeplink"):
+                provider_ref = pr.provider_ref
+            # "failed" / "unsupported" → fall through to local ledger
+
+    order = orders_for(tenant_id).create_order(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        place_id=place_id,
+        venue_name=venue_name,
+        date=date,
+        slot=slot,
+        pro_id=pro_id,
+        services=services_list,
+        idempotency_key=idempotency_key,
+        provider=provider_name,
+        provider_ref=provider_ref,
+    )
+    audit_write(
+        tenant_id=tenant_id, session_id=session_id, user_id=user_id,
+        role="create_order", status="ok", has_output=True,
+        detail=f"order_id={order.order_id} provider={provider_name} kind={provider_kind}",
+    )
+    return {
+        "order": order_to_dict(order),
+        "provider_kind": provider_kind,
+        "provider_ref": provider_ref,
+    }
+
+
+@activity.defn(name="cancel_order")
+async def cancel_order(req_dict: dict[str, Any]) -> dict[str, Any]:
+    """Multi-service order cancel — idempotent.
+
+    Fans out to the provider adapter's `cancel()` when the order was
+    booked through a non-local provider AND we hold a provider_ref.
+    """
+    from services.orders_store import orders_for
+    from providers.registry import get_provider
+
+    tenant_id = str(req_dict.get("tenant_id") or "")
+    user_id = str(req_dict.get("user_id") or "")
+    session_id = str(req_dict.get("session_id") or "")
+    order_id = str(req_dict.get("order_id") or "")
+    reason = str(req_dict.get("reason") or "")
+
+    if not (tenant_id and order_id):
+        raise ValueError("cancel_order: missing required fields")
+
+    store = orders_for(tenant_id)
+    order = store.get_order(order_id)
+
+    provider_status = ""
+    if order and order.provider and order.provider != "local" and order.provider_ref:
+        adapter = get_provider(order.provider)
+        if adapter is not None:
+            can_cancel = getattr(adapter, "can_book_directly", lambda: False)()
+            if can_cancel:
+                pr = adapter.cancel(provider_ref=order.provider_ref, reason=reason)
+                provider_status = pr.kind
+
+    status = store.cancel(order_id, reason)
+    audit_write(
+        tenant_id=tenant_id, session_id=session_id, user_id=user_id,
+        role="cancel_order", status="ok", has_output=True,
+        detail=f"order_id={order_id} status={status} provider_status={provider_status}",
+    )
+    return {
+        "order_id": order_id,
+        "status": status,
+        "provider_status": provider_status,
+    }

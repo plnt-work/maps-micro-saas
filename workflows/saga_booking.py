@@ -163,3 +163,132 @@ def deterministic_booking_id(idem_key: str) -> str:
     needs to recognise a booking by idempotency_key.
     """
     return "bk_" + hashlib.sha1(idem_key.encode()).hexdigest()[:12]
+
+
+def deterministic_order_id(idem_key: str) -> str:
+    """Same shape as `deterministic_booking_id`, but for the multi-service
+    OrdersStore. Two keyspaces so a booking_id and an order_id never
+    collide even when the input key does.
+    """
+    return "ord_" + hashlib.sha1(idem_key.encode()).hexdigest()[:12]
+
+
+# ─────────────────────────────────────────────────────────── multi-service saga
+
+
+@dataclass
+class MultiSagaInput:
+    tenant_id: str
+    user_id: str
+    session_id: str
+    place_id: str
+    venue_name: str
+    date: str            # YYYY-MM-DD
+    slot: str            # HH:mm
+    pro_id: str
+    services: list[dict]
+    user_contact: str = ""
+    provider: str = "local"
+    force_fail_step: str | None = None
+
+
+def _multi_idempotency_key(s: "MultiSagaInput") -> str:
+    svc_ids = sorted(str(x.get("id") or "") for x in s.services)
+    return f"{s.user_id}:{s.place_id}:{s.date}:{s.slot}:{','.join(svc_ids)}:{s.pro_id}"
+
+
+def _multi_create_request(s: "MultiSagaInput", key: str) -> dict[str, Any]:
+    return {
+        "tenant_id": s.tenant_id,
+        "user_id": s.user_id,
+        "session_id": s.session_id,
+        "place_id": s.place_id,
+        "venue_name": s.venue_name,
+        "date": s.date,
+        "slot": s.slot,
+        "pro_id": s.pro_id,
+        "services": list(s.services),
+        "user_contact": s.user_contact,
+        "provider": s.provider,
+        "idempotency_key": key,
+    }
+
+
+def _multi_cancel_request(s: "MultiSagaInput", order_id: str, reason: str) -> dict[str, Any]:
+    return {
+        "tenant_id": s.tenant_id,
+        "user_id": s.user_id,
+        "session_id": s.session_id,
+        "order_id": order_id,
+        "reason": reason,
+    }
+
+
+def _multi_notify_request(s: "MultiSagaInput", order_id: str) -> dict[str, Any]:
+    return {
+        "tenant_id": s.tenant_id,
+        "user_id": s.user_id,
+        "session_id": s.session_id,
+        "booking_id": order_id,
+        "channel": "push",
+        "message": f"Your booking at {s.venue_name} on {s.date} at {s.slot} is confirmed.",
+        "force_fail": s.force_fail_step == "notify",
+    }
+
+
+async def run_multi_service_saga(s: MultiSagaInput) -> SagaResult:
+    """Multi-service order saga: create_order → notify_booking; on notify
+    failure, compensate with cancel_order.
+    """
+    retry = RetryPolicy(initial_interval=timedelta(seconds=1), maximum_attempts=3)
+    key = _multi_idempotency_key(s)
+
+    # ─── step 1: create_order ───
+    create = await workflow.execute_activity(
+        "create_order",
+        args=[_multi_create_request(s, key)],
+        start_to_close_timeout=timedelta(seconds=20),
+        retry_policy=retry,
+    )
+    order_dict = (create or {}).get("order", {}) or {}
+    order_id = str(order_dict.get("order_id") or "")
+    if not order_id:
+        return SagaResult(
+            booking_id=None, status="failed",
+            note="create_order returned no order_id",
+        )
+
+    # ─── step 2: notify_booking ───
+    try:
+        await workflow.execute_activity(
+            "notify_booking",
+            args=[_multi_notify_request(s, order_id)],
+            start_to_close_timeout=timedelta(seconds=10),
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
+    except ActivityError as e:
+        # ─── compensation: cancel_order ───
+        try:
+            await workflow.execute_activity(
+                "cancel_order",
+                args=[_multi_cancel_request(
+                    s, order_id,
+                    reason=f"compensation: notify failed ({type(e).__name__})",
+                )],
+                start_to_close_timeout=timedelta(seconds=15),
+                retry_policy=retry,
+            )
+        except ApplicationError:
+            return SagaResult(
+                booking_id=order_id, status="failed",
+                note="notify failed AND cancel failed — manual review required",
+            )
+        return SagaResult(
+            booking_id=order_id, status="compensated",
+            note=f"notify failed; order {order_id} cancelled",
+        )
+
+    return SagaResult(
+        booking_id=order_id, status="confirmed",
+        note="order confirmed and notified",
+    )

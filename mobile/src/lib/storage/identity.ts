@@ -3,17 +3,17 @@
 // sessionStorage; mobile wants it to survive process restarts).
 // session_id is per-process by default — newSession() rotates it.
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { getRandomBytes } from "expo-crypto";
 
 const USER_KEY = "plnt.user_id";
 const SESSION_KEY = "plnt.session_id";
 
 function freshId(prefix: string): string {
-  // Hermes ships crypto.getRandomValues as a global — no expo-crypto
-  // fallback needed on RN 0.71+.
-  const arr = new Uint8Array(6);
-  (globalThis as unknown as {
-    crypto: { getRandomValues(a: Uint8Array): void };
-  }).crypto.getRandomValues(arr);
+  // expo-crypto.getRandomBytes is the only universally-available source
+  // on both iOS and Android Hermes. globalThis.crypto is not reliable on
+  // Android Hermes builds — the earlier "crypto is a global" assumption
+  // crashed bootstrap.
+  const arr = getRandomBytes(6);
   return `${prefix}-${Array.from(arr)
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("")}`;

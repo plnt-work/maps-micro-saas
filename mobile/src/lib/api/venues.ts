@@ -11,8 +11,9 @@
 //     query: ?date=YYYY-MM-DD&service_id=…(repeatable)&pro_id=…
 import { z } from "zod";
 import { apiGet } from "./client";
+import { env } from "@/lib/env";
 
-const LIVE_MODE = false;
+const LIVE_MODE = true;
 
 export const ServiceSchema = z.object({
   id: z.string(),
@@ -132,21 +133,41 @@ function mockReviews(placeId: string): Review[] {
 
 // ───────────────────────────── public api ─────────────────────────────
 
+function tenantQS(extra?: Record<string, string> | URLSearchParams): string {
+  const qs = new URLSearchParams();
+  qs.set("tenant_id", env.tenant);
+  if (extra instanceof URLSearchParams) {
+    extra.forEach((v, k) => qs.append(k, v));
+  } else if (extra) {
+    for (const [k, v] of Object.entries(extra)) qs.append(k, v);
+  }
+  return qs.toString();
+}
+
 export async function fetchServices(placeId: string): Promise<Service[]> {
   if (!LIVE_MODE) return mockServices(placeId);
-  const r = await apiGet(`/v1/venues/${encodeURIComponent(placeId)}/services`, ServicesResponse);
+  const r = await apiGet(
+    `/v1/venues/${encodeURIComponent(placeId)}/services?${tenantQS()}`,
+    ServicesResponse,
+  );
   return r.services;
 }
 
 export async function fetchTeam(placeId: string): Promise<TeamMember[]> {
   if (!LIVE_MODE) return mockTeam();
-  const r = await apiGet(`/v1/venues/${encodeURIComponent(placeId)}/team`, TeamResponse);
+  const r = await apiGet(
+    `/v1/venues/${encodeURIComponent(placeId)}/team?${tenantQS()}`,
+    TeamResponse,
+  );
   return r.team;
 }
 
 export async function fetchReviews(placeId: string): Promise<Review[]> {
   if (!LIVE_MODE) return mockReviews(placeId);
-  const r = await apiGet(`/v1/venues/${encodeURIComponent(placeId)}/reviews`, ReviewsResponse);
+  const r = await apiGet(
+    `/v1/venues/${encodeURIComponent(placeId)}/reviews?${tenantQS()}`,
+    ReviewsResponse,
+  );
   return r.reviews;
 }
 
@@ -157,7 +178,10 @@ export async function fetchAvailability(
   proId: string,
 ): Promise<AvailabilityResponse> {
   if (!LIVE_MODE) return mockAvailability(placeId, date, serviceIds, proId);
-  const qs = new URLSearchParams({ date, pro_id: proId });
+  const qs = new URLSearchParams();
+  qs.set("tenant_id", env.tenant);
+  qs.set("date", date);
+  qs.set("pro_id", proId);
   for (const id of serviceIds) qs.append("service_id", id);
   return apiGet(
     `/v1/venues/${encodeURIComponent(placeId)}/availability?${qs.toString()}`,

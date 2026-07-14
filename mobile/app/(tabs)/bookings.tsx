@@ -70,7 +70,6 @@ export default function BookingsScreen() {
         keyExtractor={(r, i) =>
           r.kind === "header" ? `h-${r.label}` : `b-${r.booking.booking_id}-${i}`
         }
-        estimatedItemSize={96}
         getItemType={(r) => r.kind}
         renderItem={({ item }) =>
           item.kind === "header" ? (

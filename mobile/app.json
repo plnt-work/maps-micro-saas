@@ -44,6 +44,13 @@
     "runtimeVersion": {
       "policy": "appVersion"
     },
+    "updates": {
+      "enabled": true,
+      "url": "https://u.expo.dev/ac5d5217-ad5d-4b7a-8ca5-7751abb95cf4",
+      "requestHeaders": {
+        "expo-channel-name": "preview"
+      }
+    },
     "extra": {
       "router": {},
       "eas": {

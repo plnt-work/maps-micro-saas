@@ -4,11 +4,16 @@
 import "react-native-url-polyfill/auto";
 import "../global.css";
 
+import { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
+
+import { env } from "@/lib/env";
+import { configureNotifications, registerPushToken } from "@/lib/push";
+import { getOrCreateUserId } from "@/lib/storage/identity";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -20,6 +25,20 @@ const queryClient = new QueryClient({
 });
 
 export default function RootLayout() {
+  // Push registration is best-effort — configure the foreground handler,
+  // then fire-and-forget the token registration once we have a user id.
+  useEffect(() => {
+    configureNotifications();
+    void (async () => {
+      try {
+        const userId = await getOrCreateUserId();
+        await registerPushToken(env.tenant, userId);
+      } catch {
+        // swallow — push helper already logs and returns null on failure
+      }
+    })();
+  }, []);
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>

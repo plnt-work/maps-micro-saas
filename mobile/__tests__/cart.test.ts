@@ -70,14 +70,14 @@ describe("cart", () => {
   it("persistence round-trip: state writes to AsyncStorage", async () => {
     useCart.getState().setPlace("biz-1");
     useCart.getState().addService(haircut);
-    // zustand persist writes synchronously to memory but flushes to
-    // AsyncStorage asynchronously — give it a microtask to drain.
+    // The manual subscribe writes synchronously to the AsyncStorage
+    // mock; still give it a microtask to drain in case the impl swaps.
     await new Promise((r) => setTimeout(r, 0));
     const raw = await AsyncStorage.getItem("plnt.cart");
     expect(raw).not.toBeNull();
     const parsed = JSON.parse(raw!);
-    expect(parsed.state.placeId).toBe("biz-1");
-    expect(parsed.state.services).toHaveLength(1);
-    expect(parsed.state.services[0].id).toBe("s1");
+    expect(parsed.placeId).toBe("biz-1");
+    expect(parsed.services).toHaveLength(1);
+    expect(parsed.services[0].id).toBe("s1");
   });
 });

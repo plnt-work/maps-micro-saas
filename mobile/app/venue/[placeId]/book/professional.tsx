@@ -67,7 +67,6 @@ export default function ProfessionalStep() {
         <FlashList
           data={rows}
           keyExtractor={(r) => String(r.id)}
-          estimatedItemSize={76}
           renderItem={renderItem}
           extraData={proId}
           contentContainerStyle={{ paddingBottom: 16 }}

@@ -7,6 +7,7 @@ const RAW = {
   apiBase: () => process.env.EXPO_PUBLIC_API_BASE,
   wsBase: () => process.env.EXPO_PUBLIC_WS_BASE,
   defaultTenant: () => process.env.EXPO_PUBLIC_DEFAULT_TENANT,
+  tenant: () => process.env.EXPO_PUBLIC_TENANT_ID,
 };
 
 function required(get: () => string | undefined, label: string, key: string): string {
@@ -29,5 +30,10 @@ export const env = {
   },
   get defaultTenant(): string {
     return RAW.defaultTenant() || "demo";
+  },
+  /** Tenant id used for per-tenant API calls (bookings, venues, push).
+   *  EXPO_PUBLIC_TENANT_ID overrides; defaults to "demo". */
+  get tenant(): string {
+    return RAW.tenant() || "demo";
   },
 };

@@ -36,11 +36,12 @@ export function VenueCard({ business, width = 220, variant = "horizontal", highl
     >
       <View className="rounded-2xl overflow-hidden bg-paper-200">
         <View className="aspect-[4/3] bg-paper-300 items-center justify-center">
-          {business.photo_uri ? (
+          {business.photos?.[0] || business.photo_uri ? (
             <Image
-              source={{ uri: business.photo_uri }}
+              source={{ uri: business.photos?.[0] ?? business.photo_uri }}
               style={{ width: "100%", height: "100%" }}
               contentFit="cover"
+              cachePolicy="memory-disk"
               transition={150}
             />
           ) : (

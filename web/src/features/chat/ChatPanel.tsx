@@ -16,7 +16,7 @@
  * current Gemini synth ignores the bracket prefix but includes it in
  * context, which is fine for the demo.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Icon } from "@/components/ui/Icon";
 import { Button } from "@/components/ui/Button";
@@ -82,6 +82,42 @@ export default function ChatPanel({
     return it.reply.role === "say" || it.reply.role === "system";
   });
 
+  // Perceived-latency aids: surface the latest system note as the live
+  // thinking label so the user sees which step is running, plus a 1Hz
+  // tick of seconds elapsed since their last message. Pure derivation
+  // from `items`; the interval only nudges nowTick (no setState in
+  // effect body).
+  const [nowTick, setNowTick] = useState<number>(0);
+  useEffect(() => {
+    if (!thinking) return;
+    const id = setInterval(() => {
+      setNowTick(Date.now());
+    }, 1000);
+    return () => clearInterval(id);
+  }, [thinking]);
+
+  const { lastUserTs, latestSystemNote } = useMemo(() => {
+    let ts: number | null = null;
+    let note: string | null = null;
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i];
+      if (it.kind === "user") {
+        ts = it.ts;
+        break;
+      }
+      if (it.reply.role === "system" && !note) {
+        const n = String((it.reply.content as { note?: unknown }).note || "");
+        if (n) note = n;
+      }
+    }
+    return { lastUserTs: ts, latestSystemNote: note };
+  }, [items]);
+
+  const elapsedSeconds =
+    thinking && lastUserTs && nowTick > lastUserTs
+      ? Math.floor((nowTick - lastUserTs) / 1000)
+      : 0;
+
   const send = (text: string): boolean => {
     const envelope = `[biz:${business.place_id} agent:${agent.slug}] ${text}`;
     return onSendRaw(envelope);
@@ -103,16 +139,37 @@ export default function ChatPanel({
         className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-3"
       >
         {turns.length === 0 && (
-          <div className="text-sm text-ink-100 px-1">
-            Asking{" "}
-            <span
-              className="font-medium"
-              style={{ color: accent }}
-            >
-              {agent.label}
-            </span>{" "}
-            about <span className="text-ink-500 font-medium">{business.display_name}</span>.
-            <div className="mt-1 text-[11px] text-ink-100">{agent.hint}</div>
+          <div className="px-1 space-y-2.5">
+            <div className="text-sm text-ink-100">
+              Asking{" "}
+              <span className="font-medium" style={{ color: accent }}>
+                {agent.label}
+              </span>{" "}
+              about <span className="text-ink-500 font-medium">{business.display_name}</span>.
+              <div className="mt-1 text-[11px] text-ink-100">{agent.hint}</div>
+            </div>
+            {agent.prompts.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {agent.prompts.map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => send(p)}
+                    disabled={status !== "connected"}
+                    className="
+                      h-7 px-2.5 rounded-full text-[12px] font-medium
+                      border border-paper-600 bg-white text-ink-700
+                      hover:bg-paper-200 transition-colors
+                      disabled:opacity-50 disabled:cursor-not-allowed
+                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-iri-blue/40
+                    "
+                    title={status !== "connected" ? `cannot send — status: ${status}` : p}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -234,7 +291,12 @@ export default function ChatPanel({
         {thinking && (
           <div className="mr-auto flex items-center gap-2 px-1 text-ink-100 text-xs">
             <ThinkingDots />
-            <span>thinking…</span>
+            <span>{latestSystemNote || "thinking…"}</span>
+            {elapsedSeconds > 1 && (
+              <span className="text-[10.5px] text-ink-100/70 font-mono">
+                {elapsedSeconds}s
+              </span>
+            )}
           </div>
         )}
 
@@ -250,7 +312,7 @@ export default function ChatPanel({
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           placeholder={
-            status === "connected" ? `Ask ${agent.label.toLowerCase()}…`
+            status === "connected" ? agent.placeholder
             : status === "connecting" ? "connecting to backend…"
             : status === "error" ? "agent offline — is uvicorn running on :8080?"
             : status === "closed" ? "reconnecting…"

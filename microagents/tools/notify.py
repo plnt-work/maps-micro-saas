@@ -1,11 +1,12 @@
-"""notify_send — placeholder for per-tenant notification adapters.
+"""notify_send — real Expo push dispatch.
 
-Slice 2 left `notify_booking` as a no-op activity. The tool form keeps the
-adapter contract explicit so when real Resend/Postmark/Twilio integrations
-land they slot in behind this single name without changing the saga.
+Looks up the tenant/user's Expo push token via
+`services.push_tokens.push_tokens_for(...)` and pushes through
+`services.expo_push.send_expo_push`. Silent on delivery failure — the
+saga's `notify_booking` activity is what decides whether to compensate.
 
-For now it returns {sent: true, channel: 'noop'} like the prior activity.
-The audit log carries the channel + booking_id so test assertions still hold.
+Missing token → returns channel="no-token" and sent=False. Do NOT raise:
+the send happens best-effort so a missing device doesn't kill the saga.
 """
 from __future__ import annotations
 
@@ -24,7 +25,9 @@ _SCHEMA: dict[str, Any] = {
             "type": "string",
             "description": "Preferred channel hint (sms|email|push). Adapter may override.",
         },
+        "title": {"type": "string", "description": "Notification title (overrides default)."},
         "message": {"type": "string", "description": "Pre-rendered message body, when known."},
+        "status_label": {"type": "string", "description": "Status verb, defaults to 'confirmed'."},
     },
     "required": ["booking_id"],
 }
@@ -34,13 +37,33 @@ def _notify_send(
     ctx: TenantContext,
     *,
     booking_id: str,
-    channel: str = "noop",
+    channel: str = "push",
+    title: str = "",
     message: str = "",
+    status_label: str = "confirmed",
 ) -> dict[str, Any]:
-    """No-op. Real per-tenant adapter dispatch lives in MA-P4."""
+    from services.push_tokens import push_tokens_for
+    from services.expo_push import send_expo_push
+
+    token = push_tokens_for(ctx.tenant_id).get(ctx.user_id)
+    if not token:
+        return {
+            "sent": False,
+            "channel": "no-token",
+            "booking_id": booking_id,
+            "tenant_id": ctx.tenant_id,
+        }
+
+    resolved_title = title or f"Booking {status_label or 'confirmed'}"
+    resolved_body = message or f"Booking {booking_id} is confirmed."
+    push_result = send_expo_push(
+        tokens=[token.expo_token],
+        title=resolved_title,
+        body=resolved_body,
+        data={"booking_id": booking_id, "kind": "booking_confirmed"},
+    )
     return {
-        "sent": True,
-        "channel": channel or "noop",
+        **push_result,
         "booking_id": booking_id,
         "tenant_id": ctx.tenant_id,
     }
@@ -50,8 +73,9 @@ register(Tool(
     name="notify_send",
     description=(
         "Send a booking notification through the tenant's configured adapter. "
-        "Currently a no-op (adapters land in MA-P4); returns sent=true so the "
-        "saga commits."
+        "Currently pushes via Expo when a device token is registered; returns "
+        "sent=False + channel='no-token' when the user has no registered device "
+        "so the saga still commits."
     ),
     schema=_SCHEMA,
     fn=_notify_send,

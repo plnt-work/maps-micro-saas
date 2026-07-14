@@ -3,11 +3,14 @@
 // shared search store; the parent screen re-renders off useSearch().
 import { forwardRef, useCallback, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import BottomSheetModal, {
+import {
+  BottomSheetModal,
   BottomSheetBackdrop,
-  type BottomSheetModal as BottomSheetModalRef,
   type BottomSheetBackdropProps,
 } from "@gorhom/bottom-sheet";
+// `BottomSheetModal` is the COMPONENT (named export). Its ref type is
+// also `BottomSheetModal` — TS unifies them, no separate type alias.
+type BottomSheetModalRef = BottomSheetModal;
 import type { Vertical } from "@web/places/types";
 import { CATEGORIES } from "@/features/places/categories";
 

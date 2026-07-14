@@ -22,8 +22,11 @@ import * as live from "../api/admin-v2";
 import * as mock from "../api/admin-mocks";
 import { mockOverviewKpis, type OverviewKpis } from "../api/admin-mocks";
 
+// Live by default now that the MA-P6 admin v2 endpoints are shipped.
+// Set VITE_ADMIN_LIVE=0 to fall back to the in-memory mocks (useful for
+// storybook / offline UI work).
 const LIVE_MODE =
-  (import.meta.env.VITE_ADMIN_LIVE as string | undefined) === "1";
+  (import.meta.env.VITE_ADMIN_LIVE as string | undefined) !== "0";
 
 /** Pick the right transport. Centralized so every hook benefits from
  *  one swap when the backend ships. */

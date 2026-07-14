@@ -7,6 +7,7 @@ export type ChatAction =
   | { kind: "offer_slots"; slots: string[]; business_name?: string }
   | { kind: "booking_confirmed"; business_name: string; slot: string; booking_id: string }
   | { kind: "booking_failed"; reason: string }
+  | { kind: "search_results"; place_ids: string[] }
   | null;
 
 export function deriveAction(items: TimelineItem[]): ChatAction {
@@ -38,6 +39,12 @@ export function deriveAction(items: TimelineItem[]): ChatAction {
     }
     if (kind === "booking_failed") {
       return { kind, reason: String(a.reason || "unknown error") };
+    }
+    if (kind === "search_results") {
+      return {
+        kind,
+        place_ids: Array.isArray(a.place_ids) ? (a.place_ids as unknown[]).map(String) : [],
+      };
     }
   }
   return null;

@@ -1,14 +1,17 @@
-// Home search dispatch — opens a short-lived WS connection (via the
-// shared useWsChat hook), sends the freeform envelope, then lets the
-// hook tear down on unmount. The actual reply rendering happens once
-// the user navigates into a venue/agent surface where ChatPanel mounts;
-// for P1, the Home search is just the seed event — we surface
-// classify_intent results via console for now.
+// Home search dispatch — owns the WS connection that backs freeform
+// queries from the Home pill / /search modal. Returns both the
+// dispatcher and the surfaces that consume its replies:
+//   - banner: latest say-reply newer than the last user message, with no
+//     action. Rendered as a sticky strip in the Home bottom sheet.
+//   - searchResultsPlaceIds: when the agent replies with
+//     action.kind="search_results", these place_ids replace the
+//     client-side text filter as the visible set.
 //
-// In P2, Home will route to a global "search results" screen that owns
-// the WS for the entire freeform turn. Marked TODO inline.
-import { useEffect, useRef } from "react";
-import { useWsChat } from "./useWsChat";
+// Mount this hook in exactly ONE place per session (Home). Other
+// surfaces that want to push queries (e.g. /search modal) should write
+// to the shared search store instead — Home subscribes and dispatches.
+import { useCallback, useMemo, useRef, useState } from "react";
+import { useWsChat, type Reply } from "./useWsChat";
 import { freeformEnvelope } from "./envelope";
 import { env } from "@/lib/env";
 
@@ -16,32 +19,90 @@ interface Opts {
   userLoc?: { lat: number; lng: number } | null;
 }
 
-let _pseudoUser = "m-anon";
-let _pseudoSession = "s-home";
+const _pseudoUser = "m-anon";
+const _pseudoSession = "s-home";
 
-export function useHomeSearchDispatch({ userLoc }: Opts) {
-  // For P1 we use stable per-process ids so a Home->Home repeat keeps the
-  // same workflow. Real identity wiring (AsyncStorage-backed) hooks in
-  // when the venue / agent screens take over the WS in P2.
+export interface HomeSearchBanner {
+  text: string;
+  seq: number;
+  dismiss: () => void;
+}
+
+export interface HomeSearchHandle {
+  dispatch: (text: string) => void;
+  banner: HomeSearchBanner | null;
+  /** When the agent replies with action.kind="search_results", these
+   *  replace the client-side text filter. `null` = fall back to filter. */
+  searchResultsPlaceIds: string[] | null;
+}
+
+export function useHomeSearchDispatch({ userLoc }: Opts): HomeSearchHandle {
   const tenantId = env.defaultTenant;
   const userIdRef = useRef(_pseudoUser);
   const sessionIdRef = useRef(_pseudoSession);
 
-  const { send, status } = useWsChat({
+  const { send, items } = useWsChat({
     tenantId,
     sessionId: sessionIdRef.current,
     userId: userIdRef.current,
   });
 
-  // TODO(P2): replace this fire-and-forget with a route to a results
-  // screen that mounts useWsChat for the full turn lifetime.
-  useEffect(() => {
-    // ensure the connection has a beat to come up before sends are
-    // attempted (status flips to "connected" via the hook).
-  }, [status]);
+  const [dismissedSeq, setDismissedSeq] = useState<number | null>(null);
 
-  return (text: string) => {
-    const env_ = freeformEnvelope(text, { userLoc });
-    send(env_);
-  };
+  // Index of the last `user` echo in the timeline — used as the
+  // "since last query" cursor. The WS echoes the user message back as
+  // a role=user reply (see useWsChat); we use that, not a local ref,
+  // so reconnects + replay stay coherent.
+  const lastUserIdx = useMemo(() => {
+    for (let i = items.length - 1; i >= 0; i--) {
+      if (items[i].kind === "user") return i;
+    }
+    return -1;
+  }, [items]);
+
+  const latestSayAfterUser: Reply | null = useMemo(() => {
+    for (let i = items.length - 1; i > lastUserIdx; i--) {
+      const it = items[i];
+      if (it.kind !== "reply") continue;
+      if (it.reply.role !== "say") continue;
+      return it.reply;
+    }
+    return null;
+  }, [items, lastUserIdx]);
+
+  const searchResultsPlaceIds = useMemo<string[] | null>(() => {
+    if (!latestSayAfterUser) return null;
+    const action = (latestSayAfterUser.content as { action?: { kind?: string; place_ids?: unknown } })
+      .action;
+    if (action?.kind !== "search_results") return null;
+    return Array.isArray(action.place_ids)
+      ? (action.place_ids as unknown[]).map(String)
+      : [];
+  }, [latestSayAfterUser]);
+
+  const banner = useMemo<HomeSearchBanner | null>(() => {
+    if (!latestSayAfterUser) return null;
+    if (latestSayAfterUser.seq === dismissedSeq) return null;
+    const content = latestSayAfterUser.content as { text?: string; action?: { kind?: string } };
+    // Any action attached → handled elsewhere (search_results filters the
+    // list; offer_slots/booking_* belong to the venue assistant surface).
+    if (content.action?.kind) return null;
+    const text = String(content.text || "").trim();
+    if (!text) return null;
+    return {
+      text,
+      seq: latestSayAfterUser.seq,
+      dismiss: () => setDismissedSeq(latestSayAfterUser.seq),
+    };
+  }, [latestSayAfterUser, dismissedSeq]);
+
+  const dispatch = useCallback(
+    (text: string) => {
+      const envelope = freeformEnvelope(text, { userLoc });
+      send(envelope);
+    },
+    [send, userLoc],
+  );
+
+  return { dispatch, banner, searchResultsPlaceIds };
 }

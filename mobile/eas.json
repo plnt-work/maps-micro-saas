@@ -7,7 +7,11 @@
     "base": {
       "node": "20.18.0",
       "env": {
-        "EXPO_NO_DOTENV": "1"
+        "EXPO_NO_DOTENV": "1",
+        "EXPO_PUBLIC_API_BASE": "https://dad4-152-59-103-199.ngrok-free.app",
+        "EXPO_PUBLIC_WS_BASE": "wss://dad4-152-59-103-199.ngrok-free.app",
+        "EXPO_PUBLIC_TENANT_ID": "demo",
+        "EXPO_PUBLIC_DEFAULT_TENANT": "demo"
       },
       "android": {
         "gradleCommand": ":app:assembleRelease",

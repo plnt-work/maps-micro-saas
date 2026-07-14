@@ -12,7 +12,7 @@ import { apiGet } from "./client";
 import { env } from "@/lib/env";
 import { ServiceSchema, type Service } from "./venues";
 
-const LIVE_MODE = false;
+const LIVE_MODE = true;
 
 export const BookingStatusSchema = z.enum(["confirmed", "compensated", "failed"]);
 export type BookingStatus = z.infer<typeof BookingStatusSchema>;
@@ -156,7 +156,7 @@ export async function createBooking(
     const r = await mockCreateBooking(req, ctx);
     return r.booking;
   }
-  const url = `${env.apiBase.replace(/\/$/, "")}/v1/bookings`;
+  const url = `${env.apiBase.replace(/\/$/, "")}/v1/bookings?tenant_id=${encodeURIComponent(env.tenant)}`;
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -172,10 +172,16 @@ export async function createBooking(
 
 export async function fetchUserBookings(userId: string): Promise<UserBookingsResponse> {
   if (!LIVE_MODE) return mockUserBookings(userId);
-  return apiGet(`/v1/users/${encodeURIComponent(userId)}/bookings`, UserBookingsResponseSchema);
+  return apiGet(
+    `/v1/users/${encodeURIComponent(userId)}/bookings?tenant_id=${encodeURIComponent(env.tenant)}`,
+    UserBookingsResponseSchema,
+  );
 }
 
 export async function fetchBooking(userId: string, id: string): Promise<BookingSummary | null> {
   if (!LIVE_MODE) return mockFetchBooking(userId, id);
-  return apiGet(`/v1/bookings/${encodeURIComponent(id)}`, BookingSummarySchema);
+  return apiGet(
+    `/v1/bookings/${encodeURIComponent(id)}?tenant_id=${encodeURIComponent(env.tenant)}`,
+    BookingSummarySchema,
+  );
 }

@@ -40,8 +40,10 @@ def _activities():
     if STUB_ACTIVITY:
         from workflows.stub_activities import stub_run_microagent, stub_notify_booking
         return [stub_run_microagent, stub_notify_booking]
-    from workflows.activities import run_microagent, notify_booking
-    return [run_microagent, notify_booking]
+    from workflows.activities import (
+        run_microagent, notify_booking, create_order, cancel_order,
+    )
+    return [run_microagent, notify_booking, create_order, cancel_order]
 
 
 async def main() -> None:
@@ -74,6 +76,13 @@ async def main() -> None:
         "microagents", "microagents.loader", "microagents.agent_loop",
         "microagents.tools", "microagents.tools.places",
         "microagents.tools.bookings", "microagents.tools.notify",
+        # MA-P4/P5: multi-service orders + real notify + provider fan-out.
+        # Every module the activities layer touches must be here or the
+        # sandbox rejects the imports at workflow activation time.
+        "services.orders_store", "services.catalogue",
+        "services.push_tokens", "services.expo_push",
+        "services.business_owners", "services.installed_agents",
+        "providers", "providers.base", "providers.resy", "providers.registry",
     )
     worker = Worker(
         client,
