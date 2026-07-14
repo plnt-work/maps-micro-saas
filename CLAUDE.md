@@ -236,7 +236,7 @@ The realistic architecture is therefore: Places Text Search as universal discove
 
 ## Repo identity
 
-`plnt-cloud/` is its own git repository (its `.git` lives here, not in the umbrella `../den-agent/`). The remote is `https://github.com/devdattatalele/google-business-microagent`. The initial commit (`3742a49`) bundled the whole working tree — 69 files including both backend (Python) and frontend (`web/`). Future work commits and pushes from inside `plnt-cloud/`, not from the umbrella.
+`plnt-cloud/` is its own git repository (its `.git` lives here, not in the umbrella `../den-agent/`). The remote is `https://github.com/plnt-work/google-business`. The initial commit (`3742a49`) bundled the whole working tree — 69 files including both backend (Python) and frontend (`web/`). Future work commits and pushes from inside `plnt-cloud/`, not from the umbrella.
 
 ## Multi-agent caveat
 
