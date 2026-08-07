@@ -8,6 +8,7 @@ isolated state surfaces:
   * blackboard root — home/"runs" (plnt's Blackboard takes `root=` kwarg)
   * memori          — per-tenant Memori instance (entity_id=user, process_id=role)
   * skills dir      — pointed at plnt-cloud/microagents/skills/
+  * agents dir      — home/"agents" (per-tenant installed skill bundles)
 
 Cached so the bundle for a given tenant is shared across requests. Eviction
 is not automatic — call `clear_cache()` in tests.
@@ -50,6 +51,7 @@ class TenantBundle:
     integrations: "IntegrationsStore"
     memori: "MemoriAdapter"
     skills_dir: Path
+    agents_dir: Path
 
 
 @lru_cache(maxsize=256)
@@ -71,6 +73,9 @@ def for_tenant(tenant_id: str) -> TenantBundle:
     integrations_dir = home / "integrations"
     integrations_dir.mkdir(parents=True, exist_ok=True)
 
+    agents_dir = home / "agents"
+    agents_dir.mkdir(parents=True, exist_ok=True)
+
     # plnt's IntegrationsStore takes a `path=` kwarg pointing at the TOML file.
     from plnt.surface.integrations import IntegrationsStore
     integrations = IntegrationsStore(path=integrations_dir / "integrations.toml")
@@ -87,6 +92,7 @@ def for_tenant(tenant_id: str) -> TenantBundle:
         integrations=integrations,
         memori=memori,
         skills_dir=microagents_skills_dir(),
+        agents_dir=agents_dir,
     )
 
 
