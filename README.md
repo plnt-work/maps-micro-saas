@@ -1,6 +1,6 @@
 # plnt-cloud
 
-Multi-tenant micro-agent platform built on top of [plnt](../plnt/).
+Multi-tenant micro-agent platform built on top of [plnt](http://www.plnt.work/).
 
 plnt is the personal-runtime substrate — sandbox ladder, two-tool RLM,
 `allowed_roots` filesystem scoping, per-run blackboard audit. **plnt-cloud
