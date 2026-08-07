@@ -72,7 +72,7 @@ def _send_resend_email(tenant_id: str, subject: str, body: str) -> bool:
     to = _tenant_email(tenant_id)
     if not to:
         return False
-    sender = os.environ.get("PLNT_CLOUD_NOTIFY_FROM") or "bookings@plnt.chat"
+    sender = os.environ.get("PLNT_CLOUD_NOTIFY_FROM") or "bookings@plnt.work"
     resp = httpx.post(
         _RESEND_ENDPOINT,
         headers={"Authorization": f"Bearer {key}"},

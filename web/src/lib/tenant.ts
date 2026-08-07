@@ -1,13 +1,13 @@
 /**
  * Tenant resolution for the consumer surface.
  *
- * Precedence: ?tenant= query > subdomain (<slug>.plnt.chat or
+ * Precedence: ?tenant= query > subdomain (<slug>.chat.plnt.work or
  * <slug>.localhost) > VITE_DEFAULT_TENANT > "demo". The subdomain rule is
  * what lets one static bundle serve every tenant on a wildcard domain
  * with zero middleware.
  */
 
-const SUBDOMAIN_RE = /^([a-z0-9][a-z0-9-]*)\.(?:plnt\.chat|localhost)$/;
+const SUBDOMAIN_RE = /^([a-z0-9][a-z0-9-]*)\.(?:chat\.plnt\.work|localhost)$/;
 
 /** Tenant slug from the hostname, or null when not on a tenant subdomain. */
 export function subdomainTenant(

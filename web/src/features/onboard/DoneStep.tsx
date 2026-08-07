@@ -10,7 +10,7 @@ import { CopyField } from "./CopyField";
  * honors ?tenant= as of slice 6, so "Open your chat" scopes correctly.
  */
 export function DoneStep({ tenantId }: { tenantId: string }) {
-  const shareUrl = `https://${tenantId}.plnt.chat`;
+  const shareUrl = `https://${tenantId}.chat.plnt.work`;
 
   return (
     <div className="flex flex-col gap-4">

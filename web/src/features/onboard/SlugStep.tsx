@@ -56,7 +56,7 @@ export function SlugStep({
             spellCheck={false}
             autoFocus
           />
-          <span className="whitespace-nowrap text-sm text-ink-200">.plnt.chat</span>
+          <span className="whitespace-nowrap text-sm text-ink-200">.chat.plnt.work</span>
         </div>
         {slug && !valid ? (
           <p className="text-xs text-rust">{SLUG_RULE_TEXT}</p>
