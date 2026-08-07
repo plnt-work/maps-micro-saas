@@ -197,6 +197,23 @@ def _post(
 # ───────────────────────────────────────────────────────────── output parsing
 
 
+def _strip_code_fence(text: str) -> str:
+    """Unwrap a ```json … ``` (or bare ```) markdown fence.
+
+    Gemini's OpenAI-compat surface fences JSON on tool-bearing skills, where
+    we can't send responseSchema — so the raw content arrives fenced.
+    """
+    if not text.startswith("```"):
+        return text
+    body = text[3:]
+    if body[:4].lower() == "json":
+        body = body[4:]
+    elif body[:1] == "\n":
+        body = body[1:]
+    end = body.rfind("```")
+    return (body[:end] if end != -1 else body).strip()
+
+
 def _parse_content(content: str | None, *, expect_json: bool) -> dict[str, Any]:
     """Turn the model's final message content into a dict.
 
@@ -204,7 +221,7 @@ def _parse_content(content: str | None, *, expect_json: bool) -> dict[str, Any]:
     surface a parse failure as an error field. Otherwise wrap free text in
     {"answer": <text>}.
     """
-    text = (content or "").strip()
+    text = _strip_code_fence((content or "").strip())
     if not text:
         return {}
     if expect_json:
