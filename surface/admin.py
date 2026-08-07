@@ -120,6 +120,30 @@ def _list_tenant_ids() -> list[str]:
     return sorted(p.name for p in tenants_dir.iterdir() if p.is_dir())
 
 
+def provision_tenant_record(
+    tenant_id: str, display_name: str = "", extra: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], str | None]:
+    """Create the tenant home + tenant.json with a hashed api_key.
+    Returns (meta, plaintext_key); plaintext_key is None when the tenant
+    already existed (we only store the hash)."""
+    from tenancy.factory import for_tenant, clear_cache as factory_clear
+    factory_clear()
+    for_tenant(tenant_id)  # creates the home dir
+    existing = _load_meta(tenant_id)
+    if existing:
+        return existing, None
+    plaintext_key = secrets.token_urlsafe(32)
+    meta = {
+        "tenant_id": tenant_id,
+        "display_name": display_name or tenant_id,
+        "created_at": time.time(),
+        "api_key_hash": _hash_key(plaintext_key),
+        **(extra or {}),
+    }
+    _save_meta(tenant_id, meta)
+    return meta, plaintext_key
+
+
 def _aggregate_metrics(tid: str) -> TenantMetrics:
     """Read straight from the per-tenant on-disk artifacts. Cheap and tenant-scoped."""
     from tenancy.factory import for_tenant
@@ -220,30 +244,15 @@ def provision_tenant(req: TenantCreate) -> TenantSummary:
     Re-provisioning an existing tenant_id does NOT return a key (we don't
     have the plaintext; use /tenants/{tid}/rotate-key to issue a new one).
     """
-    from tenancy.factory import for_tenant, clear_cache as factory_clear
-    factory_clear()
-
+    from tenancy.factory import for_tenant
+    meta, plaintext_key = provision_tenant_record(req.tenant_id, req.display_name)
     bundle = for_tenant(req.tenant_id)
-    existing = _load_meta(req.tenant_id)
-    if existing:
-        meta = existing
-        api_key_to_return: str | None = None
-    else:
-        plaintext_key = secrets.token_urlsafe(32)
-        meta = {
-            "tenant_id": req.tenant_id,
-            "display_name": req.display_name or req.tenant_id,
-            "created_at": time.time(),
-            "api_key_hash": _hash_key(plaintext_key),
-        }
-        _save_meta(req.tenant_id, meta)
-        api_key_to_return = plaintext_key
     return TenantSummary(
         tenant_id=req.tenant_id,
         display_name=str(meta.get("display_name") or req.tenant_id),
         created_at=float(meta.get("created_at") or 0),
         home=str(bundle.home),
-        api_key=api_key_to_return,
+        api_key=plaintext_key,
     )
 
 
