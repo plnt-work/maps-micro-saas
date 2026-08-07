@@ -14,11 +14,7 @@ const AGENT_SLUG = "booking-restaurant";
  * Step 4 — install the pre-selected Table Booking agent with the three
  * Journey-A config fields. The api_key panel renders only when the key
  * is still in memory from the create call — it is shown exactly once.
- *
- * Note: the optional menu/docs upload from Journey A is NOT here —
- * /v1/admin/tenants/{tid}/docs requires admin bearer auth, which the
- * merchant's onboard cookie can't satisfy until Slice 6's merchant
- * scoping. Deliberately skipped, not hacked around.
+ * The optional menu upload follows as its own step (MenuStep).
  */
 export function InstallStep({
   tenantId,

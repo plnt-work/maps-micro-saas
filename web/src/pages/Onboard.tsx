@@ -1,9 +1,9 @@
 /**
  * Onboard — merchant onboarding wizard (Journey A frontend, slice 5b).
  *
- * URL contract: /onboard?step=signin|claim|slug|install|done drives the
- * wizard so refresh and back/forward work; install/done also carry
- * ?tenant=<tid> once the tenant exists. In-memory only: the claimed
+ * URL contract: /onboard?step=signin|claim|slug|install|menu|done drives
+ * the wizard so refresh and back/forward work; install/menu/done also
+ * carry ?tenant=<tid> once the tenant exists. In-memory only: the claimed
  * business (refresh at ?step=slug falls back to claim) and the one-time
  * api_key (shown once by design — a refresh loses it, the backend never
  * re-issues it).
@@ -14,6 +14,7 @@ import { Navigate, useSearchParams } from "react-router-dom";
 import { ClaimStep } from "../features/onboard/ClaimStep";
 import { DoneStep } from "../features/onboard/DoneStep";
 import { InstallStep } from "../features/onboard/InstallStep";
+import { MenuStep } from "../features/onboard/MenuStep";
 import { SignInStep } from "../features/onboard/SignInStep";
 import { SlugStep } from "../features/onboard/SlugStep";
 import { StepIndicator } from "../features/onboard/StepIndicator";
@@ -41,7 +42,7 @@ export default function Onboard() {
   const go = (next: StepKey, tenant?: string) => {
     const p = new URLSearchParams({ step: next });
     const tid = tenant ?? tenantId;
-    if (tid && (next === "install" || next === "done")) p.set("tenant", tid);
+    if (tid && (next === "install" || next === "menu" || next === "done")) p.set("tenant", tid);
     setParams(p);
   };
 
@@ -60,7 +61,7 @@ export default function Onboard() {
   const me = meQ.data ?? null;
   if (step !== "signin" && !me) return <Navigate to="/onboard?step=signin" replace />;
   if (step === "slug" && !business) return <Navigate to="/onboard?step=claim" replace />;
-  if ((step === "install" || step === "done") && !tenantId)
+  if ((step === "install" || step === "menu" || step === "done") && !tenantId)
     return <Navigate to="/onboard?step=claim" replace />;
 
   return (
@@ -84,7 +85,10 @@ export default function Onboard() {
         />
       )}
       {step === "install" && tenantId && (
-        <InstallStep tenantId={tenantId} apiKey={apiKey} onInstalled={() => go("done")} />
+        <InstallStep tenantId={tenantId} apiKey={apiKey} onInstalled={() => go("menu")} />
+      )}
+      {step === "menu" && tenantId && (
+        <MenuStep tenantId={tenantId} onDone={() => go("done")} />
       )}
       {step === "done" && tenantId && <DoneStep tenantId={tenantId} />}
     </Shell>

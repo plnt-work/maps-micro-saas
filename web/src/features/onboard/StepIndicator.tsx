@@ -7,6 +7,7 @@ const LABELS: Record<StepKey, string> = {
   claim: "Your business",
   slug: "Your link",
   install: "First agent",
+  menu: "Menu",
   done: "Share",
 };
 
