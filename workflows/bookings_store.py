@@ -132,6 +132,43 @@ class BookingsStore:
             ).fetchone()
         return _row_to_booking(row) if row else None
 
+    def list_all(
+        self,
+        status: str | None = None,
+        user_id: str | None = None,
+        since: float | None = None,
+        limit: int | None = None,
+    ) -> tuple[list[Booking], int]:
+        """Filtered listing for the admin surface.
+
+        `user_id` matches `user_contact` — the chat path fills that column
+        with the user_id when no explicit contact was given (session.py).
+        Returns (rows newest-first, total matching before limit).
+        """
+        clauses: list[str] = []
+        params: list[object] = []
+        if status:
+            clauses.append("status = ?")
+            params.append(status)
+        if user_id:
+            clauses.append("user_contact = ?")
+            params.append(user_id)
+        if since is not None:
+            clauses.append("created_at >= ?")
+            params.append(float(since))
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+
+        with self._lock, self._connect() as cx:
+            total = int(cx.execute(
+                f"SELECT COUNT(*) AS n FROM bookings{where}", tuple(params),
+            ).fetchone()["n"])
+            sql = f"SELECT * FROM bookings{where} ORDER BY created_at DESC"
+            if limit is not None:
+                sql += " LIMIT ?"
+                params = [*params, int(limit)]
+            rows = cx.execute(sql, tuple(params)).fetchall()
+        return [_row_to_booking(r) for r in rows], total
+
     def count_by_status(self) -> dict[str, int]:
         with self._lock, self._connect() as cx:
             rows = cx.execute(

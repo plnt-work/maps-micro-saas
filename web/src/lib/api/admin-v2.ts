@@ -173,6 +173,10 @@ export interface MarketplaceAgent {
   vertical: string;
   tools: string[];
   default_config: Record<string, unknown>;
+  /** Bundle version the catalog would install (semver). */
+  version?: string;
+  /** false = coming-soon; install returns 409. Absent = installable. */
+  available?: boolean;
 }
 
 export interface MarketplaceResponse {
@@ -189,6 +193,8 @@ export async function listMarketplace(vertical?: string): Promise<MarketplaceRes
 
 export interface InstalledAgent {
   slug: string;
+  /** Installed bundle version (from the `<slug>@<version>` dir name). */
+  version?: string;
   enabled: boolean;
   config: Record<string, unknown>;
   installed_at: number;

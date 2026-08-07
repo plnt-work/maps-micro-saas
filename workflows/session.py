@@ -86,6 +86,9 @@ class ConversationWorkflow:
         # Most recent geolocation parsed from the trailing "[@lat,lng]" marker
         # the frontend appends to each user message.
         self._user_location: dict[str, float] | None = None
+        # Best-match business from the most recent resolve — the enquiry
+        # skill's profile grounding. Empty until a lookup lands.
+        self._business_profile: dict[str, Any] = {}
 
     # ─────────────────────────────────────────────────── signals & queries
 
@@ -200,6 +203,10 @@ class ConversationWorkflow:
             bq = str(cls_out.get("business_query") or "").strip() or text
             self._push_reply("system", {"note": f"Looking up {bq}…"})
             await self._handle_lookup(text, cls_out, today_iso, trace)
+        elif kind == "question":
+            self._push_reply("system", {"note": "Checking that for you…"})
+            if await self._handle_question(text, today_iso, trace):
+                return  # enquiry reply IS the user-facing say; skip the synthesizer
         elif kind == "confirm":
             biz = (self._pending or {}).get("business_name", "your booking")
             self._push_reply("system", {"note": f"Confirming {biz}…"})
@@ -243,6 +250,7 @@ class ConversationWorkflow:
         business_name = str(best.get("name") or "")
         if not business_name:
             return
+        self._business_profile = dict(best)
 
         self._push_reply("system", {"note": f"Checking availability at {business_name}…"})
 
@@ -270,6 +278,29 @@ class ConversationWorkflow:
                 "slots": [str(s) for s in slot_list],
                 "provider": provider_for_platform(str(best.get("platform") or "")),
             }
+
+    async def _handle_question(
+        self, text: str, today_iso: str, trace: list[dict[str, Any]],
+    ) -> bool:
+        """Run the enquiry skill; emit its answer directly as the `say` reply.
+
+        Retrieval (doc_context) is injected activity-side — the workflow only
+        passes the question + whatever business profile it has. Returns False
+        when the skill produced no answer, so the synthesizer can fall back.
+        """
+        enq = await self._call_agent("enquiry-generic", {
+            "question": text,
+            "business_profile": dict(self._business_profile),
+            "today": today_iso,
+        })
+        e_out = enq.get("output", {}) or {}
+        trace.append({"role": "enquiry-generic", "output": e_out})
+        self._push_reply("enquiry-generic", e_out)
+        say = str(e_out.get("say") or "").strip()
+        if not say:
+            return False
+        self._finalize_say(say, None)
+        return True
 
     def _handle_cancel(self, trace: list[dict[str, Any]]) -> None:
         if self._pending:
@@ -340,6 +371,10 @@ class ConversationWorkflow:
 
         if not say:
             say, action = _fallback_reply(trace, self._pending)
+        self._finalize_say(say, action)
+
+    def _finalize_say(self, say: str, action: Any) -> None:
+        """Push the single user-facing reply + do end-of-turn bookkeeping."""
         self._push_reply("say", {"say": say, "action": action})
         # Record agent turn so it joins the next prompt's history.
         self._history.append({"role": "assistant", "content": say})

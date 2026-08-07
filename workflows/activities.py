@@ -78,13 +78,22 @@ async def run_microagent(req_dict: dict[str, Any]) -> dict[str, Any]:
         )
         return result
 
+    inputs = dict(req.inputs)
+    if req.role == "enquiry-generic" and "doc_context" not in inputs:
+        # Retrieval lives here (activity side) — workflow code can't touch
+        # the filesystem. Keyword overlap over the tenant's doc chunks.
+        from services.doc_chunk import top_chunks
+        inputs["doc_context"] = top_chunks(
+            req.tenant_id, str(inputs.get("question") or ""), k=3,
+        )
+
     ctx = TenantContext(req.tenant_id, req.user_id, req.session_id)
     token = set_current_tenant(ctx)
     try:
         loop_result = run_skill(
             skill,
             ctx=ctx,
-            inputs=dict(req.inputs),
+            inputs=inputs,
             memori=bundle.memori,
         )
 

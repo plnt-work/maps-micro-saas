@@ -120,7 +120,13 @@ def _stub_compute(req_dict: dict[str, Any]) -> dict[str, Any]:
         confirm_starts = {"yes", "yeah", "yep", "yup", "ok", "okay",
                            "sure", "confirm", "confirmed", "go", "do"}
         cancel_starts = {"no", "cancel", "stop", "nevermind", "nope"}
-        if first_token in confirm_starts:
+        # Question-shaped openers beat the confirm check — "do you have X?"
+        # is an enquiry, not a "do it" confirmation.
+        question_starts = ("do you", "are you", "is there", "does the",
+                           "what are your", "what time")
+        if text.startswith(question_starts):
+            kind = "question"
+        elif first_token in confirm_starts:
             kind = "confirm"
         elif first_token in cancel_starts or "cancel" in text:
             kind = "cancel"
@@ -189,6 +195,36 @@ def _stub_compute(req_dict: dict[str, Any]) -> dict[str, Any]:
 
     if role == "synthesize_response":
         return {"role": role, "output": _stub_synthesize(inputs), "steps": 1}
+
+    if role == "enquiry-generic":
+        tenant_id = req_dict.get("tenant_id", "")
+        question = str(inputs.get("question") or "")
+        profile = inputs.get("business_profile") or {}
+        chunks = inputs.get("doc_context")
+        if chunks is None:
+            # Same activity-side retrieval as production (keyword overlap).
+            from services.doc_chunk import top_chunks
+            chunks = top_chunks(tenant_id, question, k=3)
+        if chunks:
+            top = chunks[0]
+            return {
+                "role": role,
+                "output": {
+                    "say": f"From {top['doc']}: {top['text'][:200]}",
+                    "grounded": True,
+                    "source": "docs",
+                },
+                "steps": 1,
+            }
+        say = "I'm not sure about that one."
+        phone = str(profile.get("phone") or "")
+        if phone:
+            say += f" You can reach {profile.get('name') or 'the business'} at {phone}."
+        return {
+            "role": role,
+            "output": {"say": say, "grounded": False, "source": "none"},
+            "steps": 1,
+        }
 
     if role == "create_booking":
         tenant_id = req_dict.get("tenant_id", "")

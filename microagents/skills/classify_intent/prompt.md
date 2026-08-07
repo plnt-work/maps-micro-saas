@@ -20,7 +20,7 @@ Return ONE JSON object matching the response schema:
 
 ```json
 {
-  "kind": "<one of: book | query | cancel | confirm | smalltalk>",
+  "kind": "<one of: book | query | question | cancel | confirm | smalltalk>",
   "business_query": "<string or empty>",
   "service": "<string or empty>",
   "date_hint": "<string or empty>"
@@ -32,7 +32,11 @@ Return ONE JSON object matching the response schema:
 - `kind` is REQUIRED. Pick the single best match.
 - The other three fields are optional — return empty strings when absent.
 - "book", "schedule", "reserve", "I want a table at X" → `book`
-- "what time does X open", "do you have X" → `query`
+- Searching or discovering businesses ("pizza near me", "find sushi places",
+  "is there a good salon in Bandra?") → `query`
+- Asking ABOUT a business — its menu, hours, prices, policies, amenities
+  ("do you do gluten-free?", "what time does X open?", "is parking
+  available?") → `question`
 - "cancel my booking", "I can't make it" → `cancel`
 - "yes book it", "confirm", "go ahead" → `confirm`
 - Greetings, thanks, off-topic → `smalltalk`
@@ -43,7 +47,13 @@ User input: `find me an appointment at Joe's Pizza tomorrow at 7pm`
 → `{"kind": "book", "business_query": "Joe's Pizza", "service": "appointment", "date_hint": "tomorrow at 7pm"}`
 
 User input: `what time does Mario's open on Sunday?`
-→ `{"kind": "query", "business_query": "Mario's", "service": "", "date_hint": "Sunday"}`
+→ `{"kind": "question", "business_query": "Mario's", "service": "", "date_hint": "Sunday"}`
+
+User input: `do you have gluten-free options?`
+→ `{"kind": "question", "business_query": "", "service": "", "date_hint": ""}`
+
+User input: `any good pizza places near Bandra?`
+→ `{"kind": "query", "business_query": "pizza near Bandra", "service": "", "date_hint": ""}`
 
 User input: `actually cancel that`
 → `{"kind": "cancel", "business_query": "", "service": "", "date_hint": ""}`
