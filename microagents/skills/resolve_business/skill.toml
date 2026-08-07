@@ -64,6 +64,10 @@ type = "number"
 [response_schema.properties.candidates.items.properties.lng]
 type = "number"
 
+[response_schema.properties.candidates.items.properties.platform]
+type = "string"
+description = "Provider adapter tag (google | resy | opentable | zomato | swiggy | district). Defaults to google when absent."
+
 [response_schema.properties.best_match]
 type = ["object", "null"]
 description = "Single best candidate when confident; null when user must disambiguate"

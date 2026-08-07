@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -146,26 +147,28 @@ class ResyAdapter(ProviderAdapter):
         self, *, provider_id: str, slot: str, user_contact: str,
         party_size: int = 2, idempotency_key: str = "",
     ) -> ProviderResult:
-        if not self.is_configured():
-            return ProviderResult(kind="unsupported", provider=self.name,
-                                  note="resy adapter not configured")
-        if not self.can_book_directly():
-            # Fall back to a deep-link — the client renders it as an action.
-            day = slot.split("T", 1)[0] if "T" in slot else slot
-            url = f"https://resy.com/cities/ny/venues/{provider_id}?date={day}&seats={party_size}"
-            return ProviderResult(
-                kind="deeplink", provider=self.name, provider_ref=url,
-                note="no user auth token — hand-off to resy.com",
-                metadata={"deeplink_url": url, "party_size": party_size, "slot": slot},
-            )
-        # With a user auth token we could POST /3/book with the config_id
-        # from /4/find. We skip the two-hop confirm-then-book here — a
-        # production integration wires that in and stores the returned
-        # reservation id as provider_ref. For now we return unsupported
-        # rather than silently mis-book.
+        # Deep-link is the universal fallback — Resy's direct /3/book path
+        # requires a real user session we don't (yet) hold. Renders a
+        # "Complete on Resy" action card on the client.
+        day = slot.split("T", 1)[0] if "T" in slot else slot
+        url = f"https://resy.com/cities/ny/venues/{provider_id}?date={day}&seats={party_size}"
+        verified_at = datetime.now(timezone.utc).isoformat()
+        note = (
+            "resy adapter not configured — hand-off to resy.com"
+            if not self.is_configured()
+            else "no user auth token — hand-off to resy.com"
+        )
         return ProviderResult(
-            kind="unsupported", provider=self.name,
-            note="direct book requires a Resy user session — not implemented",
+            kind="deeplink", provider=self.name, provider_ref=url, note=note,
+            metadata={
+                "deeplink_url": url,
+                "url": url,
+                "venue_id": provider_id,
+                "party_size": party_size,
+                "date": day,
+                "slot": slot,
+                "verified_at": verified_at,
+            },
         )
 
     # ─── cancel ──────────────────────────────────────────

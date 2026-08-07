@@ -39,6 +39,7 @@ class SagaInput:
     business_id: str
     slot: str
     user_contact: str
+    provider: str = "house_rules"
     # Test hook: when set, the notify activity raises so compensation runs.
     force_fail_step: str | None = None
     force_backend: str | None = None
@@ -68,6 +69,7 @@ def _booking_request(s: SagaInput) -> dict[str, Any]:
             "slot": s.slot,
             "user_contact": s.user_contact,
             "idempotency_key": key,
+            "provider": s.provider,
         },
         "force_backend": s.force_backend,
     }

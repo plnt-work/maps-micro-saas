@@ -29,4 +29,6 @@ def _ensure_defaults() -> None:
     # Import here to avoid a top-level circular import (providers/__init__
     # re-exports from this module).
     from providers.resy import ResyAdapter
+    from providers.house_rules import HouseRulesAdapter
     register_provider(ResyAdapter())
+    register_provider(HouseRulesAdapter())
