@@ -134,11 +134,9 @@ async def run_microagent(req_dict: dict[str, Any]) -> dict[str, Any]:
 async def notify_booking(req_dict: dict[str, Any]) -> dict[str, Any]:
     """Saga step — dispatches the `notify_send` tool directly (no LLM).
 
-    Pushes through Expo when the user has a registered device; otherwise
-    the tool records channel='no-token' and returns sent=False without
-    raising. Failure to reach Expo does not raise here either — the saga's
-    compensation semantics are keyed on Activity exceptions, and a missing
-    device should not roll back the booking.
+    The tool always writes the tenant's dashboard feed and raises when that
+    write fails — that exception is what triggers saga compensation. Email
+    (Resend) and Expo push are best-effort inside the tool and never raise.
     """
     tenant_id = str(req_dict.get("tenant_id") or "")
     user_id = str(req_dict.get("user_id") or "")
@@ -147,8 +145,14 @@ async def notify_booking(req_dict: dict[str, Any]) -> dict[str, Any]:
     ctx = TenantContext(tenant_id, user_id, session_id)
     result = dispatch_tool("notify_send", ctx, {
         "booking_id": booking_id,
+        "kind": str(req_dict.get("kind") or "booking_confirmed"),
         "channel": str(req_dict.get("channel") or "push"),
         "message": str(req_dict.get("message") or ""),
+        "status_label": str(req_dict.get("status_label") or "confirmed"),
+        "business_name": str(req_dict.get("business_name") or ""),
+        "slot": str(req_dict.get("slot") or ""),
+        "party_size": req_dict.get("party_size"),
+        "user_contact": str(req_dict.get("user_contact") or ""),
     })
     activity.logger.info(
         "notify_booking: tenant=%s session=%s booking_id=%s sent=%s channel=%s",

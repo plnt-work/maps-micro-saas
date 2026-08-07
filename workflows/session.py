@@ -327,6 +327,7 @@ class ConversationWorkflow:
             business_id=str(self._pending["business_id"]),
             slot=chosen_slot,
             provider=str(self._pending.get("provider") or "house_rules"),
+            business_name=str(self._pending.get("business_name") or ""),
             user_contact=self._input.user_contact or self._input.user_id,
             force_fail_step=self._force_fail_step,
             force_backend=self._input.force_backend,

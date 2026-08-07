@@ -183,6 +183,34 @@ def get_transcript(tid: str, sid: str) -> dict[str, list[dict[str, Any]]]:
     return {"transcript": entries}
 
 
+# ─────────────────────────────────────────────────────────── notifications
+
+
+class NotificationsRead(BaseModel):
+    ids: list[str]
+
+
+@router.get("/tenants/{tid}/notifications")
+def list_notifications(
+    tid: str,
+    limit: int | None = None,
+    unread: bool = False,
+) -> dict[str, Any]:
+    from tenancy.notifications import list_notifications as feed_list, unread_count
+
+    return {
+        "notifications": feed_list(tid, limit=limit, unread_only=unread),
+        "unread_count": unread_count(tid),
+    }
+
+
+@router.post("/tenants/{tid}/notifications/read")
+def mark_notifications_read(tid: str, body: NotificationsRead) -> dict[str, Any]:
+    from tenancy.notifications import mark_read
+
+    return {"updated": mark_read(tid, body.ids)}
+
+
 @router.get("/tenants/{tid}/users")
 def list_users(tid: str) -> dict[str, list[dict[str, Any]]]:
     from tenancy.audit import read_events

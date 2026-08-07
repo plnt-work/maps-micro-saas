@@ -126,6 +126,53 @@ export async function getTranscript(
   return r.json();
 }
 
+/* ─── Notifications ─────────────────────────────────────────────── */
+
+export type NotificationKind = "booking_confirmed" | "booking_compensated";
+
+export interface NotificationEntry {
+  id: string;
+  /** Unix seconds. */
+  ts: number;
+  kind: NotificationKind;
+  title: string;
+  body: string;
+  data: Record<string, unknown>;
+  read: boolean;
+}
+
+export interface NotificationsResponse {
+  notifications: NotificationEntry[];
+  unread_count: number;
+}
+
+export async function listNotifications(
+  tenantId: string,
+  q: { limit?: number; unread?: boolean } = {},
+): Promise<NotificationsResponse> {
+  const url = new URL(
+    `${BASE}/tenants/${encodeURIComponent(tenantId)}/notifications`,
+    window.location.origin,
+  );
+  if (q.limit !== undefined) url.searchParams.set("limit", String(q.limit));
+  if (q.unread) url.searchParams.set("unread", "true");
+  const r = await fetch(url.toString(), { headers: headers() });
+  if (!r.ok) throw new Error(`listNotifications ${r.status}`);
+  return r.json();
+}
+
+export async function markNotificationsRead(
+  tenantId: string,
+  ids: string[],
+): Promise<{ updated: number }> {
+  const r = await fetch(
+    `${BASE}/tenants/${encodeURIComponent(tenantId)}/notifications/read`,
+    { method: "POST", headers: headers(), body: JSON.stringify({ ids }) },
+  );
+  if (!r.ok) throw new Error(`markNotificationsRead ${r.status}`);
+  return r.json();
+}
+
 /* ─── Users ─────────────────────────────────────────────────────── */
 
 export interface UserSummary {

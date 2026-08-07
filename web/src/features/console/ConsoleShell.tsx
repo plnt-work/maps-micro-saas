@@ -31,6 +31,7 @@ import {
 import { cn } from "@/lib/cn";
 import { Combobox, type ComboboxItem } from "@/components/ui/Combobox";
 
+import NotificationsBell from "./NotificationsBell";
 import OverviewTab from "./tabs/OverviewTab";
 import ReservationsTab from "./tabs/ReservationsTab";
 import ConversationsTab from "./tabs/ConversationsTab";
@@ -137,6 +138,7 @@ export default function ConsoleShell({
         </div>
 
         <div className="flex items-center gap-3 text-[12.5px]">
+          <NotificationsBell tenantId={selected} />
           <button
             type="button"
             onClick={onProvision}
