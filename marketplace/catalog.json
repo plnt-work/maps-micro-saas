@@ -13,14 +13,14 @@
     },
     {
       "slug": "booking-salon",
-      "version": "0.1.0",
+      "version": "0.9.0",
       "display_name": "Appointment Booking (Salon & Spa)",
       "description": "Service-duration-aware appointment booking for salons and spas. Weekly schedule slots instead of nightly tables.",
       "vertical": "salon,spa",
       "publisher": "plnt-official",
       "tools": ["check_availability", "create_booking", "cancel_booking"],
       "default_config": {"confirm_before_mutation": true},
-      "available": false
+      "available": true
     },
     {
       "slug": "intake-clinic",
