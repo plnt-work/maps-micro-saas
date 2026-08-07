@@ -42,6 +42,8 @@ const src = LIVE_MODE
       install: live.installAgent,
       patch: live.patchAgent,
       uninstall: live.uninstallAgent,
+      notifications: live.listNotifications,
+      markRead: live.markNotificationsRead,
       // No live overview KPI endpoint yet — when the backend ships it,
       // wire it here.
       overview: mockOverviewKpis,
@@ -57,6 +59,8 @@ const src = LIVE_MODE
       install: mock.mockInstallAgent,
       patch: mock.mockPatchAgent,
       uninstall: mock.mockUninstallAgent,
+      notifications: mock.mockListNotifications,
+      markRead: mock.mockMarkNotificationsRead,
       overview: mockOverviewKpis,
     };
 
@@ -128,6 +132,31 @@ export function useTranscript(
     enabled: !!tenantId && !!sessionId,
     staleTime: STALE.med,
     ...opts,
+  });
+}
+
+/* ─── Notifications ─────────────────────────────────────────────── */
+
+export function useNotifications(
+  tenantId: string | null,
+  filters: { limit?: number; unread?: boolean } = {},
+) {
+  return useQuery<live.NotificationsResponse>({
+    queryKey: ["notifications", tenantId, filters],
+    queryFn: () => src.notifications(tenantId!, filters),
+    enabled: !!tenantId,
+    staleTime: STALE.fast,
+    refetchInterval: POLL.fast,
+  });
+}
+
+export function useMarkNotificationsRead(tenantId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: string[]) => src.markRead(tenantId!, ids),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["notifications", tenantId] });
+    },
   });
 }
 

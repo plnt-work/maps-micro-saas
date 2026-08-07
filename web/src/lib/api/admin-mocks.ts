@@ -23,6 +23,8 @@ import type {
   InstalledAgentsResponse,
   MarketplaceAgent,
   MarketplaceResponse,
+  NotificationEntry,
+  NotificationsResponse,
   SessionRow,
   SessionsResponse,
   TranscriptEntry,
@@ -311,6 +313,52 @@ export async function mockUninstallAgent(_tid: string, slug: string): Promise<vo
   const idx = INSTALLED.findIndex((a) => a.slug === slug);
   if (idx >= 0) INSTALLED.splice(idx, 1);
   return delay(undefined, 200);
+}
+
+/* ─── notifications derived from confirmed/cancelled bookings ───── */
+
+const NOTIFICATIONS_STORE: NotificationEntry[] = BOOKINGS_STORE
+  .filter((b) => b.status === "confirmed" || b.status === "cancelled")
+  .slice(0, 8)
+  .map((b, i) => {
+    const kind = b.status === "confirmed" ? "booking_confirmed" as const : "booking_compensated" as const;
+    return {
+      id: `ntf_mock_${b.booking_id}`,
+      ts: b.created_at,
+      kind,
+      title: kind === "booking_confirmed" ? "Booking confirmed" : "Booking cancelled (compensated)",
+      body: `Booking ${b.booking_id} for ${new Date(b.slot).toLocaleString()} is ${b.status}.`,
+      data: { booking_id: b.booking_id, business_name: b.business_id, slot: b.slot },
+      read: i >= 3,
+    };
+  })
+  .sort((a, b) => b.ts - a.ts);
+
+export async function mockListNotifications(
+  _tid: string,
+  q: { limit?: number; unread?: boolean } = {},
+): Promise<NotificationsResponse> {
+  let rows = NOTIFICATIONS_STORE.slice();
+  if (q.unread) rows = rows.filter((n) => !n.read);
+  if (q.limit !== undefined) rows = rows.slice(0, q.limit);
+  return delay({
+    notifications: rows,
+    unread_count: NOTIFICATIONS_STORE.filter((n) => !n.read).length,
+  });
+}
+
+export async function mockMarkNotificationsRead(
+  _tid: string,
+  ids: string[],
+): Promise<{ updated: number }> {
+  let updated = 0;
+  for (const n of NOTIFICATIONS_STORE) {
+    if (ids.includes(n.id) && !n.read) {
+      n.read = true;
+      updated += 1;
+    }
+  }
+  return delay({ updated }, 150);
 }
 
 /* ─── overview KPIs derived from the same data ──────────────────── */
