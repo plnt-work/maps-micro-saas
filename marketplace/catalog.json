@@ -42,7 +42,7 @@
       "publisher": "plnt-official",
       "tools": [],
       "default_config": {},
-      "available": false
+      "available": true
     },
     {
       "slug": "review-responder",
