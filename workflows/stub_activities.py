@@ -156,6 +156,7 @@ def _stub_compute(req_dict: dict[str, Any]) -> dict[str, Any]:
             "neighborhood": "",
             "city": "",
             "category": "restaurant",
+            "platform": "google",
         }
         return {
             "role": role,

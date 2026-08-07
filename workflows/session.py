@@ -73,6 +73,9 @@ class ConversationWorkflow:
         # Candidates from the most recent show_candidates synthesizer action.
         # Used to resolve ordinal refs ("the second one") into a concrete pick.
         self._last_candidates: list[dict[str, Any]] = []
+        # Most recent geolocation parsed from the trailing "[@lat,lng]" marker
+        # the frontend appends to each user message.
+        self._user_location: dict[str, float] | None = None
 
     # ─────────────────────────────────────────────────── signals & queries
 
@@ -142,9 +145,15 @@ class ConversationWorkflow:
         today_iso = workflow.now().date().isoformat()
         trace: list[dict[str, Any]] = []
 
+        # Strip the frontend's trailing "[@lat,lng]" geolocation marker so it
+        # doesn't leak into the LLM prompt, and stash the coords for the
+        # downstream resolve_business step.
+        text, user_location = _extract_geolocation(text)
+
         # Expand ordinal references to concrete candidate names so the LLM
         # has something to resolve. "the second one" → "book {candidate[1].name}".
         text = _expand_ordinal(text, self._last_candidates)
+        self._user_location = user_location
 
         # Record this user turn before classification so the LLM sees it as
         # the latest in the history window.
@@ -205,14 +214,14 @@ class ConversationWorkflow:
         if not business_query:
             business_query = text
 
-        resolved = await self._call_agent(
-            "resolve_business",
-            {
-                "business_query": business_query,
-                "user_text": text,
-                "today": today_iso,
-            },
-        )
+        resolve_inputs: dict[str, Any] = {
+            "business_query": business_query,
+            "user_text": text,
+            "today": today_iso,
+        }
+        if self._user_location is not None:
+            resolve_inputs["user_location"] = dict(self._user_location)
+        resolved = await self._call_agent("resolve_business", resolve_inputs)
         r_out = resolved.get("output", {})
         trace.append({"role": "resolve_business", "output": r_out})
         self._push_reply("resolve_business", r_out)
@@ -411,6 +420,25 @@ def _fallback_reply(
 
 
 _ISO_DT_RE = __import__("re").compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?")
+
+_GEO_RE = __import__("re").compile(
+    r"\s*\[@\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*\]\s*$"
+)
+
+
+def _extract_geolocation(text: str) -> tuple[str, dict[str, float] | None]:
+    """Strip a trailing "[@lat,lng]" marker off `text` and return the parsed
+    coords. Returns (text, None) when the marker is absent or malformed."""
+    if not text:
+        return text, None
+    m = _GEO_RE.search(text)
+    if not m:
+        return text, None
+    try:
+        lat = float(m.group(1)); lng = float(m.group(2))
+    except ValueError:
+        return text, None
+    return text[: m.start()].rstrip(), {"lat": lat, "lng": lng}
 
 _ORDINALS = {
     "first": 0, "1st": 0, "one": 0,
