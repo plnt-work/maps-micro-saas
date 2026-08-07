@@ -273,15 +273,38 @@ async def stub_notify_booking(req_dict: dict[str, Any]) -> dict[str, Any]:
     """Stub notification step in the booking saga.
 
     Honors `force_fail=True` so tests can drive the compensation path.
-    Production replaces this with SMS / email / push integrations.
+    Writes the same per-tenant feed as production (no email/push).
     """
     if req_dict.get("force_fail"):
         raise ApplicationError(
             f"notify failed (forced) for booking_id={req_dict.get('booking_id')}",
             non_retryable=True,
         )
+    from tenancy.notifications import append as feed_append
+
+    booking_id = str(req_dict.get("booking_id") or "")
+    kind = str(req_dict.get("kind") or "booking_confirmed")
+    verb = str(req_dict.get("status_label") or "confirmed")
+    business_name = str(req_dict.get("business_name") or "")
+    slot = str(req_dict.get("slot") or "")
+    at = f" at {business_name}" if business_name else ""
+    entry, created = feed_append(
+        str(req_dict.get("tenant_id") or ""),
+        kind=kind,
+        title=f"Booking {verb}",
+        body=f"Booking {booking_id}{at} is {verb}.",
+        data={
+            "booking_id": booking_id,
+            "business_name": business_name,
+            "slot": slot,
+            "party_size": req_dict.get("party_size"),
+            "user_contact": str(req_dict.get("user_contact") or ""),
+        },
+    )
     return {
         "sent": True,
-        "channel": "stub",
-        "booking_id": req_dict.get("booking_id"),
+        "channel": "feed",
+        "booking_id": booking_id,
+        "notification_id": entry["id"],
+        "deduped": not created,
     }

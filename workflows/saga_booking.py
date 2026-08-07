@@ -40,6 +40,7 @@ class SagaInput:
     slot: str
     user_contact: str
     provider: str = "house_rules"
+    business_name: str = ""
     # Test hook: when set, the notify activity raises so compensation runs.
     force_fail_step: str | None = None
     force_backend: str | None = None
@@ -86,13 +87,20 @@ def _cancel_request(s: SagaInput, booking_id: str, reason: str) -> dict[str, Any
     }
 
 
-def _notify_request(s: SagaInput, booking_id: str) -> dict[str, Any]:
+def _notify_request(
+    s: SagaInput, booking_id: str, kind: str = "booking_confirmed",
+) -> dict[str, Any]:
     return {
         "tenant_id": s.tenant_id,
         "user_id": s.user_id,
         "session_id": s.session_id,
         "booking_id": booking_id,
-        "force_fail": s.force_fail_step == "notify",
+        "kind": kind,
+        "status_label": "cancelled" if kind == "booking_compensated" else "confirmed",
+        "business_name": s.business_name,
+        "slot": s.slot,
+        "user_contact": s.user_contact,
+        "force_fail": kind == "booking_confirmed" and s.force_fail_step == "notify",
     }
 
 
@@ -145,6 +153,7 @@ async def run_booking_saga(s: SagaInput) -> SagaResult:
                 booking_id=booking_id, status="failed",
                 note="notify failed AND cancel failed — manual review required",
             )
+        await _notify_compensated(_notify_request(s, booking_id, kind="booking_compensated"))
         return SagaResult(
             booking_id=booking_id, status="compensated",
             note=f"notify failed; booking {booking_id} cancelled",
@@ -154,6 +163,23 @@ async def run_booking_saga(s: SagaInput) -> SagaResult:
         booking_id=booking_id, status="confirmed",
         note="booking confirmed and notified",
     )
+
+
+async def _notify_compensated(req: dict[str, Any]) -> None:
+    """Best-effort booking_compensated feed entry after a rollback.
+
+    The saga already compensated; a second notify failure must not change
+    its outcome, so ActivityError is swallowed here.
+    """
+    try:
+        await workflow.execute_activity(
+            "notify_booking",
+            args=[req],
+            start_to_close_timeout=timedelta(seconds=10),
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
+    except ActivityError:
+        pass
 
 
 # ─────────────────────────────────────────────────────────── helpers
@@ -226,15 +252,23 @@ def _multi_cancel_request(s: "MultiSagaInput", order_id: str, reason: str) -> di
     }
 
 
-def _multi_notify_request(s: "MultiSagaInput", order_id: str) -> dict[str, Any]:
+def _multi_notify_request(
+    s: "MultiSagaInput", order_id: str, kind: str = "booking_confirmed",
+) -> dict[str, Any]:
+    verb = "cancelled" if kind == "booking_compensated" else "confirmed"
     return {
         "tenant_id": s.tenant_id,
         "user_id": s.user_id,
         "session_id": s.session_id,
         "booking_id": order_id,
+        "kind": kind,
         "channel": "push",
-        "message": f"Your booking at {s.venue_name} on {s.date} at {s.slot} is confirmed.",
-        "force_fail": s.force_fail_step == "notify",
+        "status_label": verb,
+        "business_name": s.venue_name,
+        "slot": f"{s.date}T{s.slot}",
+        "user_contact": s.user_contact,
+        "message": f"Your booking at {s.venue_name} on {s.date} at {s.slot} is {verb}.",
+        "force_fail": kind == "booking_confirmed" and s.force_fail_step == "notify",
     }
 
 
@@ -285,6 +319,7 @@ async def run_multi_service_saga(s: MultiSagaInput) -> SagaResult:
                 booking_id=order_id, status="failed",
                 note="notify failed AND cancel failed — manual review required",
             )
+        await _notify_compensated(_multi_notify_request(s, order_id, kind="booking_compensated"))
         return SagaResult(
             booking_id=order_id, status="compensated",
             note=f"notify failed; order {order_id} cancelled",
