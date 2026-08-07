@@ -28,7 +28,7 @@ additionalProperties = false
 
 [response_schema.properties.kind]
 type = "string"
-enum = ["book", "query", "cancel", "confirm", "smalltalk"]
+enum = ["book", "query", "question", "cancel", "confirm", "smalltalk"]
 
 [response_schema.properties.business_query]
 type = "string"

@@ -79,7 +79,7 @@ async def main() -> None:
         # MA-P4/P5: multi-service orders + real notify + provider fan-out.
         # Every module the activities layer touches must be here or the
         # sandbox rejects the imports at workflow activation time.
-        "services.orders_store", "services.catalogue",
+        "services.orders_store", "services.catalogue", "services.doc_chunk",
         "services.push_tokens", "services.expo_push",
         "services.business_owners", "services.installed_agents",
         "providers", "providers.base", "providers.resy", "providers.registry",
