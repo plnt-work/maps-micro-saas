@@ -71,10 +71,13 @@ interface Props {
   onSelectTenant: (id: string) => void;
   onProvision: () => void;
   onDeleteTenant: (id: string) => void;
+  /** Merchant-scoped console: no tenant picker, no provisioning chrome. */
+  merchantMode?: boolean;
 }
 
 export default function ConsoleShell({
   tenants, selected, onSelectTenant, onProvision, onDeleteTenant,
+  merchantMode = false,
 }: Props) {
   const [params, setParams] = useSearchParams();
   const tabFromUrl = params.get("tab") as ConsoleTab | null;
@@ -119,15 +122,24 @@ export default function ConsoleShell({
           <span className="text-coal-200">Console</span>
         </Link>
 
-        <Combobox
-          value={selected}
-          onChange={(v) => v && onSelectTenant(v)}
-          items={tenantItems}
-          placeholder="Select tenant…"
-          searchPlaceholder="Search tenants"
-          emptyText="No tenants. Provision one →"
-          ariaLabel="Tenant"
-        />
+        {merchantMode ? (
+          <span className="inline-flex items-center gap-2 text-[13px] text-coal-50">
+            <span className="size-1.5 rounded-full bg-iri-blue" />
+            <span className="truncate">
+              {tenants.find((t) => t.tenant_id === selected)?.display_name ?? selected}
+            </span>
+          </span>
+        ) : (
+          <Combobox
+            value={selected}
+            onChange={(v) => v && onSelectTenant(v)}
+            items={tenantItems}
+            placeholder="Select tenant…"
+            searchPlaceholder="Search tenants"
+            emptyText="No tenants. Provision one →"
+            ariaLabel="Tenant"
+          />
+        )}
 
         <div className="text-[12.5px] text-coal-200 flex items-center gap-2 min-w-0">
           <span>console</span>
@@ -139,13 +151,15 @@ export default function ConsoleShell({
 
         <div className="flex items-center gap-3 text-[12.5px]">
           <NotificationsBell tenantId={selected} />
-          <button
-            type="button"
-            onClick={onProvision}
-            className="h-8 px-3 rounded-md bg-iri-blue text-white hover:bg-iri-blue/90 transition-colors text-[12.5px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-iri-blue/40"
-          >
-            + Tenant
-          </button>
+          {!merchantMode && (
+            <button
+              type="button"
+              onClick={onProvision}
+              className="h-8 px-3 rounded-md bg-iri-blue text-white hover:bg-iri-blue/90 transition-colors text-[12.5px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-iri-blue/40"
+            >
+              + Tenant
+            </button>
+          )}
           <Link to="/atlas" className="text-coal-200 hover:text-coal-50 transition-colors">
             map surface →
           </Link>

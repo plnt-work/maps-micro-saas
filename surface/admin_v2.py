@@ -2,7 +2,8 @@
 
 Additive layer on top of surface/admin.py. Shapes match the typed
 frontend client at web/src/lib/api/admin-v2.ts. All routes gated by
-the same admin bearer token as admin v1 via `require_admin`.
+`require_tenant_access`: admin bearer OR the owning merchant's
+`plnt_onboard` session cookie (slice 6).
 
 Data sources (all per-tenant, on-disk — no Temporal round-trips):
   bookings   — workflows/bookings_store.py (chat confirm-and-book path)
@@ -24,7 +25,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 
-from surface.admin import require_admin
+from surface.auth_deps import require_admin_or_merchant, require_tenant_access
 
 
 # ─────────────────────────────────────────────────────────── helpers
@@ -127,7 +128,11 @@ def _aggregate_sessions(tid: str, user_filter: str | None = None) -> list[dict[s
 # ─────────────────────────────────────────────────────────── admin router
 
 
-router = APIRouter(prefix="/v1/admin", dependencies=[Depends(require_admin)], tags=["admin_v2"])
+# Every route here is /tenants/{tid}/… — the gate admits the admin bearer
+# OR the merchant whose onboard-session email owns tenant {tid}.
+router = APIRouter(
+    prefix="/v1/admin", dependencies=[Depends(require_tenant_access)], tags=["admin_v2"],
+)
 
 
 @router.get("/tenants/{tid}/bookings")
@@ -293,9 +298,11 @@ def _catalog_entry(slug: str) -> dict[str, Any] | None:
     return None
 
 
+# Catalog is not per-tenant; the merchant Console's Agents tab needs it,
+# so any signed-in merchant session passes alongside the admin bearer.
 marketplace_router = APIRouter(
     prefix="/v1/marketplace",
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(require_admin_or_merchant)],
     tags=["marketplace"],
 )
 

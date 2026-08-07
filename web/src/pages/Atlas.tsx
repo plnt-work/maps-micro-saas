@@ -38,12 +38,12 @@ import { SAMPLE_BUSINESSES } from "../features/places/sample-businesses";
 import type { Business, Vertical } from "../features/places/types";
 import { metaFor } from "../features/places/verticals";
 import { agentBySlug, agentsFor, type AgentSlug } from "../features/agents/registry";
-
-const DEFAULT_TENANT =
-  (import.meta.env.VITE_DEFAULT_TENANT as string | undefined) || "demo";
+import { resolveTenant } from "../lib/tenant";
 
 export default function Atlas() {
-  const tenantId = DEFAULT_TENANT;
+  // ?tenant= > subdomain > VITE_DEFAULT_TENANT. Stable for the page's
+  // lifetime (query/hostname don't change under the router here).
+  const [tenantId] = useState<string>(() => resolveTenant());
 
   // ─── identity ──────────────────────────────────────────────────────
   // `useState` with a lazy initializer is React's pure way to do

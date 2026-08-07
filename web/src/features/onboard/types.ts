@@ -1,4 +1,4 @@
-export const STEP_KEYS = ["signin", "claim", "slug", "install", "done"] as const;
+export const STEP_KEYS = ["signin", "claim", "slug", "install", "menu", "done"] as const;
 export type StepKey = (typeof STEP_KEYS)[number];
 
 /** Business selected (or manually entered) in the claim step, plus the

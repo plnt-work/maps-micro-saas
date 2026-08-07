@@ -291,3 +291,36 @@ export async function uninstallAgent(tenantId: string, slug: string): Promise<vo
   );
   if (!r.ok && r.status !== 404) throw new Error(`uninstallAgent ${r.status}`);
 }
+
+/* ─── Docs (menu upload — slice 8 backend, slice 6 merchant auth) ── */
+
+export interface UploadedDoc {
+  name: string;
+  size: number;
+  uploaded_at: number;
+  chunks: number;
+}
+
+export async function uploadDoc(tenantId: string, file: File): Promise<UploadedDoc> {
+  const form = new FormData();
+  form.append("file", file);
+  // No Content-Type header — the browser sets the multipart boundary.
+  const h: Record<string, string> = {};
+  const token = import.meta.env.VITE_ADMIN_TOKEN as string | undefined;
+  if (token) h["Authorization"] = `Bearer ${token}`;
+  const r = await fetch(`${BASE}/tenants/${encodeURIComponent(tenantId)}/docs`, {
+    method: "POST",
+    headers: h,
+    body: form,
+  });
+  if (!r.ok) {
+    let detail = "";
+    try {
+      detail = ((await r.json()) as { detail?: string }).detail ?? "";
+    } catch {
+      /* non-JSON body */
+    }
+    throw new Error(detail || `uploadDoc ${r.status}`);
+  }
+  return r.json();
+}

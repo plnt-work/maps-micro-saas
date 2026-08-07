@@ -1,8 +1,8 @@
 """Admin doc upload — merchant menus / service lists for enquiry-generic.
 
 POST stores the original under <tenant_home>/docs/ and re-chunks it
-immediately (services/doc_chunk.py); DELETE removes both. Same bearer
-gate as the rest of the admin surface.
+immediately (services/doc_chunk.py); DELETE removes both. Gated by
+`require_tenant_access` — admin bearer or the owning merchant's cookie.
 """
 from __future__ import annotations
 
@@ -20,9 +20,11 @@ from services.doc_chunk import (
     rechunk_doc,
     remove_chunks,
 )
-from surface.admin import require_admin
+from surface.auth_deps import require_tenant_access
 
-router = APIRouter(prefix="/v1/admin", dependencies=[Depends(require_admin)], tags=["docs"])
+router = APIRouter(
+    prefix="/v1/admin", dependencies=[Depends(require_tenant_access)], tags=["docs"],
+)
 
 
 def _safe_name(raw: str) -> str:
