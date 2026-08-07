@@ -248,7 +248,7 @@ def test_email_sent_when_key_and_owner_email(_isolated_home, monkeypatch):
     url, kw = calls[0]
     assert url == "https://api.resend.com/emails"
     assert kw["json"]["to"] == ["owner@example.com"]
-    assert kw["json"]["from"] == "bookings@plnt.chat"
+    assert kw["json"]["from"] == "bookings@plnt.work"
     assert kw["headers"]["Authorization"] == "Bearer re_test_123"
 
     # notify_email overrides owner_email.
