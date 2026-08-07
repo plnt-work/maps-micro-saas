@@ -69,7 +69,7 @@ async def run_microagent(req_dict: dict[str, Any]) -> dict[str, Any]:
     bundle = for_tenant(req.tenant_id)
 
     try:
-        skill = load_skill(req.role)
+        skill = load_skill(req.role, tenant_id=req.tenant_id)
     except FileNotFoundError as e:
         result = asdict(MicroagentResult(role=req.role, output={}, error=str(e)))
         audit_write(

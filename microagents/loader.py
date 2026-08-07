@@ -4,6 +4,10 @@ plnt has its own SkillRegistry that reads `$PLNT_HOME/skills/<role>/`. We
 intentionally bypass it for slice 1 — plnt-cloud owns its skill catalog at
 `plnt-cloud/microagents/skills/<role>/` so it ships with the package.
 
+Per-tenant bundles installed at `<tenant_home>/agents/<slug>@<version>/`
+shadow the process-global catalog when `load_skill` is called with a
+tenant_id (slice 2). Tenants without installed bundles fall through.
+
 The loader returns the prompt text and a parsed manifest dict. The Activity
 injects the prompt into `spec.inputs["skill_prompt"]`, which the runner
 already honors (runner.py: `skill_md = spec.inputs.get("skill_prompt") or _default_skill_prompt(...)`).
@@ -12,7 +16,6 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
-from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -77,12 +80,35 @@ class LoadedSkill:
         return None
 
 
-@lru_cache(maxsize=64)
-def load_skill(role: str) -> LoadedSkill:
-    """Read a skill bundle from disk. Cached per-process."""
-    skill_dir = SKILLS_DIR / role
-    if not skill_dir.is_dir():
-        raise FileNotFoundError(f"skill bundle missing: {skill_dir}")
+# Manual cache (not lru_cache) so the `.reload` marker can evict per-tenant
+# entries. Key: (tenant_id or None, role).
+_cache: dict[tuple[str | None, str], LoadedSkill] = {}
+
+
+def _parse_version(raw: str) -> tuple[int, ...] | None:
+    try:
+        return tuple(int(part) for part in raw.split("."))
+    except ValueError:
+        return None
+
+
+def _tenant_bundle_dir(agents_dir: Path, role: str) -> Path | None:
+    """Highest-semver installed bundle dir for `role`, or None."""
+    if not agents_dir.is_dir():
+        return None
+    best: tuple[tuple[int, ...], Path] | None = None
+    for d in agents_dir.glob(f"{role}@*"):
+        if not d.is_dir() or (d / "disabled").exists():
+            continue
+        version = _parse_version(d.name.split("@", 1)[1])
+        if version is None:
+            continue
+        if best is None or version > best[0]:
+            best = (version, d)
+    return best[1] if best else None
+
+
+def _read_bundle(skill_dir: Path, role: str) -> LoadedSkill:
     prompt_path = skill_dir / "prompt.md"
     manifest_path = skill_dir / "skill.toml"
     if not prompt_path.exists() or not manifest_path.exists():
@@ -94,6 +120,41 @@ def load_skill(role: str) -> LoadedSkill:
     return LoadedSkill(role=role, prompt=prompt, manifest=manifest)
 
 
+def load_skill(role: str, tenant_id: str | None = None) -> LoadedSkill:
+    """Read a skill bundle from disk. Cached per (tenant_id, role).
+
+    With a tenant_id, a bundle installed under the tenant's agents dir
+    (`<agents_dir>/<role>@<version>/`) shadows the process-global one.
+    """
+    key = (tenant_id, role)
+    agents_dir: Path | None = None
+    if tenant_id is not None:
+        # Lazy import: loader must stay importable without the tenancy stack.
+        from tenancy.factory import for_tenant
+        agents_dir = for_tenant(tenant_id).agents_dir
+        marker = agents_dir / ".reload"
+        if marker.exists():
+            for stale in [k for k in _cache if k[0] == tenant_id]:
+                del _cache[stale]
+            marker.unlink(missing_ok=True)
+
+    cached = _cache.get(key)
+    if cached is not None:
+        return cached
+
+    skill_dir: Path | None = None
+    if agents_dir is not None:
+        skill_dir = _tenant_bundle_dir(agents_dir, role)
+    if skill_dir is None:
+        skill_dir = SKILLS_DIR / role
+        if not skill_dir.is_dir():
+            raise FileNotFoundError(f"skill bundle missing: {skill_dir}")
+
+    skill = _read_bundle(skill_dir, role)
+    _cache[key] = skill
+    return skill
+
+
 def list_skills() -> list[str]:
     """All skill roles currently shipped with plnt-cloud."""
     return sorted(
@@ -103,4 +164,4 @@ def list_skills() -> list[str]:
 
 
 def clear_cache() -> None:
-    load_skill.cache_clear()
+    _cache.clear()
