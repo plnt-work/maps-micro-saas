@@ -25,7 +25,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 from workflows.session import ConversationWorkflow, SessionInput
-from workflows.stub_activities import stub_run_microagent
+from workflows.stub_activities import stub_run_microagent, stub_notify_booking
 
 
 TASK_QUEUE = "plnt-cloud-test"
@@ -252,6 +252,67 @@ async def test_candidate_platform_set(env: WorkflowEnvironment) -> None:
     cands = resolve["content"].get("candidates") or []
     assert cands, "expected at least one candidate"
     assert cands[0].get("platform") == "google"
+
+
+def test_platform_to_provider_mapping() -> None:
+    from workflows.session import provider_for_platform
+
+    assert provider_for_platform("google") == "house_rules"
+    assert provider_for_platform("resy") == "resy"
+    assert provider_for_platform("") == "house_rules"
+
+
+async def test_platform_plumbed_into_booking_provider(env: WorkflowEnvironment) -> None:
+    """A resolve with platform="google" must land as provider="house_rules"
+    on the create_booking activity input when the user confirms."""
+    client: Client = env.client
+    wf_id = f"test-{uuid.uuid4().hex[:8]}"
+
+    seen: list[dict[str, Any]] = []
+
+    from temporalio import activity
+
+    @activity.defn(name="run_microagent")
+    async def capturing_run_microagent(req_dict: dict[str, Any]) -> dict[str, Any]:
+        seen.append(req_dict)
+        return await stub_run_microagent(req_dict)
+
+    async with Worker(
+        client,
+        task_queue=TASK_QUEUE,
+        workflows=[ConversationWorkflow],
+        activities=[capturing_run_microagent, stub_notify_booking],
+    ):
+        handle = await client.start_workflow(
+            ConversationWorkflow.run,
+            SessionInput(tenant_id="demo", user_id="alice",
+                         session_id=f"sess-{uuid.uuid4().hex[:6]}",
+                         force_backend="offline"),
+            id=wf_id, task_queue=TASK_QUEUE,
+        )
+        await handle.signal("user_message", "book Joe's Pizza tomorrow at 7pm")
+
+        replies: list[dict[str, Any]] = []
+        for _ in range(100):
+            replies = await handle.query("replies_since", 0)
+            if any(r["role"] == "say" for r in replies):
+                break
+            await asyncio.sleep(0.1)
+
+        avail = next(r for r in replies if r["role"] == "check_availability")
+        slot = avail["content"]["slots"][0]
+        await handle.signal("user_message", f"yes book {slot}")
+
+        for _ in range(100):
+            replies = await handle.query("replies_since", 0)
+            if any(r["role"] == "booking_saga" for r in replies):
+                break
+            await asyncio.sleep(0.1)
+        await handle.signal("close")
+
+    creates = [r for r in seen if r.get("role") == "create_booking"]
+    assert creates, "create_booking was never invoked"
+    assert creates[0]["inputs"].get("provider") == "house_rules"
 
 
 def test_resy_deeplink(monkeypatch) -> None:

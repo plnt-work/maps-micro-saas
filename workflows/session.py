@@ -28,6 +28,16 @@ with workflow.unsafe.imports_passed_through():
     from workflows.saga_booking import SagaInput, run_booking_saga
 
 
+# Candidate platform → booking provider adapter. Google Places can't take
+# bookings, so "google"-sourced candidates fall back to house_rules; future
+# adapters are one entry each.
+_PLATFORM_TO_PROVIDER = {"resy": "resy"}
+
+
+def provider_for_platform(platform: str) -> str:
+    return _PLATFORM_TO_PROVIDER.get(platform, "house_rules")
+
+
 @dataclass
 class SessionInput:
     """Workflow start argument — identifies the tenant + user + session triple."""
@@ -258,6 +268,7 @@ class ConversationWorkflow:
                 "business_id": biz_key,
                 "business_name": business_name,
                 "slots": [str(s) for s in slot_list],
+                "provider": provider_for_platform(str(best.get("platform") or "")),
             }
 
     def _handle_cancel(self, trace: list[dict[str, Any]]) -> None:
@@ -284,6 +295,7 @@ class ConversationWorkflow:
             session_id=self._input.session_id,
             business_id=str(self._pending["business_id"]),
             slot=chosen_slot,
+            provider=str(self._pending.get("provider") or "house_rules"),
             user_contact=self._input.user_contact or self._input.user_id,
             force_fail_step=self._force_fail_step,
             force_backend=self._input.force_backend,
