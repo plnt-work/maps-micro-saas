@@ -5,8 +5,6 @@ claim is Places Text Search, NOT the Google Business Profile API.
 """
 from __future__ import annotations
 
-import hashlib
-import hmac
 import logging
 import os
 import re
@@ -16,11 +14,18 @@ from typing import Any
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
 from surface.admin import _list_tenant_ids, _load_meta, provision_tenant_record
+from surface.auth_deps import (
+    SESSION_COOKIE,
+    SESSION_TTL,
+    make_session_cookie,
+    require_onboard_session,
+    require_owned,
+)
 
 
 log = logging.getLogger("plnt_cloud.onboard")
@@ -32,8 +37,6 @@ GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
 OAUTH_SCOPES = "openid email profile"
 
-SESSION_COOKIE = "plnt_onboard"
-SESSION_TTL = 7 * 24 * 3600
 STATE_TTL = 600
 
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{2,40}$")
@@ -59,60 +62,6 @@ def _redirect_uri() -> str:
 def _frontend_origin() -> str:
     origins = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
     return (origins[0] if origins else "http://localhost:5173").rstrip("/")
-
-
-_EPHEMERAL_SECRET: str | None = None
-
-
-def _session_secret() -> bytes:
-    global _EPHEMERAL_SECRET
-    configured = os.environ.get("PLNT_CLOUD_SESSION_SECRET", "")
-    if configured:
-        return configured.encode()
-    if _EPHEMERAL_SECRET is None:
-        _EPHEMERAL_SECRET = secrets.token_hex(32)
-        log.warning(
-            "PLNT_CLOUD_SESSION_SECRET unset — using an ephemeral secret; "
-            "onboarding sessions will not survive a restart"
-        )
-    return _EPHEMERAL_SECRET.encode()
-
-
-# ─────────────────────────────────────────────────────────── session cookie
-
-
-def _sign(payload: str) -> str:
-    return hmac.new(_session_secret(), payload.encode(), hashlib.sha256).hexdigest()
-
-
-def make_session_cookie(email: str, *, ttl: int = SESSION_TTL) -> str:
-    payload = f"{email}|{int(time.time()) + ttl}"
-    return f"{payload}|{_sign(payload)}"
-
-
-def _verify_session_cookie(value: str) -> str | None:
-    parts = value.split("|")
-    if len(parts) != 3:
-        return None
-    email, expiry_raw, sig = parts
-    if not hmac.compare_digest(_sign(f"{email}|{expiry_raw}"), sig):
-        return None
-    try:
-        expiry = int(expiry_raw)
-    except ValueError:
-        return None
-    if expiry < time.time():
-        return None
-    return email
-
-
-def require_onboard_session(request: Request) -> str:
-    """FastAPI dependency — returns the signed-in merchant email or 401s."""
-    raw = request.cookies.get(SESSION_COOKIE, "")
-    email = _verify_session_cookie(raw) if raw else None
-    if not email:
-        raise HTTPException(401, "onboarding session required")
-    return email
 
 
 # ─────────────────────────────────────────────────────────── google oauth
@@ -310,20 +259,11 @@ class InstallRequest(BaseModel):
     config: dict[str, Any] | None = None
 
 
-def _require_owned(tenant_id: str, email: str) -> dict[str, Any]:
-    meta = _load_meta(tenant_id)
-    if not meta:
-        raise HTTPException(404, f"tenant {tenant_id!r} not found")
-    if str(meta.get("owner_email") or "") != email:
-        raise HTTPException(403, "you do not own this tenant")
-    return meta
-
-
 @router.post("/install", status_code=201)
 def install_first_agent(
     body: InstallRequest, email: str = Depends(require_onboard_session),
 ) -> dict[str, Any]:
-    _require_owned(body.tenant_id, email)
+    require_owned(body.tenant_id, email)
     from surface.admin_v2 import AgentInstall, install_agent
     return install_agent(body.tenant_id, body.slug, AgentInstall(config=body.config))
 
