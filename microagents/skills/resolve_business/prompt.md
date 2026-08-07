@@ -34,7 +34,8 @@ business query into structured candidate(s) the orchestrator can use.
       "place_id": "<from Places, or empty>",
       "address": "<from Places, or empty>",
       "lat": 19.06,
-      "lng": 72.83
+      "lng": 72.83,
+      "platform": "google"
     }
   ],
   "best_match": <candidate object or null>,
@@ -43,6 +44,15 @@ business query into structured candidate(s) the orchestrator can use.
   "source": "places" | "llm"
 }
 ```
+
+Every candidate MUST carry a `platform` tag identifying which downstream
+provider adapter should service it. Rules:
+
+- Places-sourced or LLM-world-knowledge candidates → `"platform": "google"`.
+- If the tool result surfaces a Resy / OpenTable / Zomato / Swiggy /
+  District identifier for the venue, prefer that platform name
+  (`"resy"`, `"opentable"`, `"zomato"`, `"swiggy"`, `"district"`).
+- If unsure, default to `"google"`.
 
 ## Behavior rules
 
