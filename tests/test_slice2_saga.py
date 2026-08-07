@@ -34,16 +34,25 @@ async def env() -> WorkflowEnvironment:
         yield e
 
 
-async def _drive_until_replies(handle, n: int, timeout_s: float = 10.0) -> list[dict]:
-    """Poll the workflow until at least `n` replies are available."""
+async def _drive_until_role(handle, role: str, timeout_s: float = 10.0) -> list[dict]:
+    """Poll the workflow until a reply with `role` appears; return all replies.
+
+    The workflow also pushes user-echo and interim `system` bubbles, so tests
+    must select by role rather than by reply count/position.
+    """
     deadline = asyncio.get_event_loop().time() + timeout_s
     replies: list[dict] = []
     while asyncio.get_event_loop().time() < deadline:
         replies = await handle.query("replies_since", 0)
-        if len(replies) >= n:
+        if any(r["role"] == role for r in replies):
             return replies
         await asyncio.sleep(0.1)
     return replies
+
+
+def _trace_roles(replies: list[dict]) -> list[str]:
+    skip = {"user", "system", "say"}
+    return [r["role"] for r in replies if r["role"] not in skip]
 
 
 async def test_saga_happy_path(env: WorkflowEnvironment, tmp_path, monkeypatch) -> None:
@@ -76,23 +85,20 @@ async def test_saga_happy_path(env: WorkflowEnvironment, tmp_path, monkeypatch) 
             task_queue=TASK_QUEUE,
         )
 
-        # Step 1: ask for a booking — produces 3 replies (classify/resolve/check).
+        # Step 1: ask for a booking — trace ends at check_availability.
         await handle.signal("user_message", "book a table at Joe's Pizza tomorrow at 7pm")
-        first_round = await _drive_until_replies(handle, n=3)
-        assert len(first_round) == 3
-        roles = [r["role"] for r in first_round]
-        assert roles == ["classify_intent", "resolve_business", "check_availability"]
+        first_round = await _drive_until_role(handle, "check_availability")
+        assert _trace_roles(first_round) == [
+            "classify_intent", "resolve_business", "check_availability",
+        ]
 
-        # Step 2: confirm → triggers the saga, adds 2 more replies
-        # (classify_intent for the confirm message, then booking_saga result).
+        # Step 2: confirm → triggers the saga.
         await handle.signal("user_message", "yes book it")
-        after_confirm = await _drive_until_replies(handle, n=5)
-        assert len(after_confirm) == 5
+        after_confirm = await _drive_until_role(handle, "booking_saga")
 
-        last = after_confirm[-1]
-        assert last["role"] == "booking_saga"
-        assert last["content"]["status"] == "confirmed"
-        assert str(last["content"]["booking_id"]).startswith("bk_")
+        saga = [r for r in after_confirm if r["role"] == "booking_saga"][-1]
+        assert saga["content"]["status"] == "confirmed"
+        assert str(saga["content"]["booking_id"]).startswith("bk_")
 
         await handle.signal("close")
 
@@ -134,17 +140,16 @@ async def test_saga_compensation_on_notify_failure(env: WorkflowEnvironment, tmp
         )
 
         await handle.signal("user_message", "book a table at Mario's tomorrow at 8pm")
-        await _drive_until_replies(handle, n=3)
+        await _drive_until_role(handle, "check_availability")
 
         await handle.signal("user_message", "yes")
-        after_confirm = await _drive_until_replies(handle, n=5)
+        after_confirm = await _drive_until_role(handle, "booking_saga")
 
-        last = after_confirm[-1]
-        assert last["role"] == "booking_saga"
-        assert last["content"]["status"] == "compensated", (
-            f"expected compensated, got {last['content']}"
+        saga = [r for r in after_confirm if r["role"] == "booking_saga"][-1]
+        assert saga["content"]["status"] == "compensated", (
+            f"expected compensated, got {saga['content']}"
         )
-        booking_id = last["content"]["booking_id"]
+        booking_id = saga["content"]["booking_id"]
         assert booking_id and booking_id.startswith("bk_")
 
         await handle.signal("close")
