@@ -277,6 +277,9 @@ def verify_tenant_key(tenant_id: str, presented_key: str) -> bool:
     the chat doesn't fail on first contact.
     """
     require = os.environ.get("PLNT_CLOUD_REQUIRE_AUTH", "").lower() in ("1", "true", "yes")
+    # Production must enforce auth regardless of the toggle above.
+    if os.environ.get("PLNT_ENV", "").lower() == "production":
+        require = True
     if not require:
         # Auto-create the tenant on first contact so the WS handler can
         # immediately get a tenant bundle.
